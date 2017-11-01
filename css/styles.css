@@ -1,0 +1,112 @@
+*{
+	box-sizing: border-box;
+	margin :0;
+	padding: 0;
+}
+html {
+	height: 100%;
+	-moz-user-select: none;
+	-khtml-user-select: none;
+	-webkit-user-select: none;
+	-ms-user-select: none;
+	user-select: none;
+}
+body {
+	margin: 0;
+	padding: 0;
+	background-color: #202020;
+	color: #ffffff;
+	line-height: 1.4em;
+	height: 100%;
+	overflow: hidden;
+	font-family: 'Lato', sans-serif;
+	font-size: 13px;
+	font-weight: 100;
+	text-shadow: 0 1px 0 rgba(0,0,0,1);
+}
+#container {
+	position: absolute;
+	left: 0;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: 100%;
+	height: 100%;
+}
+#info{
+	position: absolute;
+	left: 20px;
+	top: 20px;
+	max-width: 400px;
+	height: 100%;
+	overflow: auto;
+}
+#info h1, #details h1{
+	font-family: 'Playfair Display', sans-serif;
+	font-weight: 700;
+	font-size: 16px;
+	margin-bottom: 1em;
+	text-transform: uppercase;
+}
+#info p, #details p{
+	margin-bottom: 1em;
+	hyphens: auto;
+}
+#info a, .action, #details a{
+	color: inherit;
+	cursor: pointer;
+	text-decoration: none;
+	opacity: .7;
+	transition: opacity 100ms ease-out;
+	font-weight: 700;
+	border-bottom: 1px solid rgba(255,255,255,.2);
+}
+#info a:hover, .action:hover, #details a:hover{
+	opacity: 1
+	border-bottom: 1px solid rgba(255,255,255,.5);
+}
+b{
+	font-weight: 700;
+}
+#details{
+	position: absolute;
+	left: 20px; top: 80px; bottom: 80px; right: 20px;
+	background-color: rgba( 0, 0,0, .4);
+	opacity: 1;
+	transition: opacity 250ms ease-out, height 250ms ease-out;;
+	overflow: hidden;
+	padding: 20px;
+	margin-bottom: 1em;
+    overflow: auto;
+}
+#details.hidden{
+	opacity: 0;
+	height: 0;
+	padding: 0;
+	margin-bottom: 0;
+}
+#details.hidden *{
+	pointer-events: none;
+}
+
+.hub{
+	position: absolute; bottom: 20px; right: 85px; color: white;
+	text-align: right; line-height: 24px;
+	height: 28px;
+}
+.hub a{
+	color: inherit;
+}
+
+.button{
+	position: absolute; border: 1px solid white; z-index: 1000; width: 28px; height: 28px; cursor: pointer; text-align: center; line-height: 24px; cursor:pointer;
+}
+.fullscreen-button{
+	right: 20px; bottom: 20px;
+}
+.info-button{
+	right: 50px; bottom: 20px;
+}
+.code{
+	font-family: "courier new", courier; color: green; padding: 5px;
+}
