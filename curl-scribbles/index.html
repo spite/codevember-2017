@@ -24,9 +24,9 @@
 			<div class="content" >
 				<h1>Details</h1>
 				<p>Scribble made with lines, curl noise and some post-processing (different blend modes, levels and gamma correction, FXAA, vignette and noise).</p>
-				<p>There´s commented code for a particle system and to use <a href="https://github.com/spite/THREE.MeshLine" >THREE.MeshLine</a> instead of THREE.Line</p>
-				<p>Perlin noise from <a href="https://github.com/josephg/noisejs" rel="external" >noisejs</a>.</p>
-				<p>Code available in <a href="https://github.com/spite/codevember-2017/tree/master/curl-scribbles" >GitHub</a>.</p>
+				<p>Built with <a href="threejs.org">three.js</a>, Perlin noise from <a href="https://github.com/josephg/noisejs" rel="external" >noisejs</a>, <a href="https://github.com/spite/Maf.js/">Maf.js</a> and <a href="https://workshop.chromeexperiments.com/examples/gui/#1--Basic-Usage" >dat.gui</a>.</p>
+				<p>Code available on <a href="https://github.com/spite/codevember-2017/tree/master/curl-scribbles" >GitHub</a>.</p>
+				<p><i>There´s commented code for a particle system and to use <a href="https://github.com/spite/THREE.MeshLine" >THREE.MeshLine</a> instead of THREE.Line.</i></p>
 				<h1>Controls</h1>
 				<p>Play with the params:</p>
 				<ul>
@@ -46,7 +46,7 @@
 		<script src="../js/three.min.js"></script>
 		<script src="../js/OrbitControls.js"></script>
 		<script src="../js/perlin.js"></script>
-		<script src="../js/THREE.MeshLine.js"></script>
+		<!--<script src="../js/THREE.MeshLine.js"></script>-->
 		<script src="../js/Maf.js"></script>
 		<script src="../js/dat.gui.min.js"></script>
 
@@ -568,6 +568,10 @@ function initScene() {
 	f1.add(params, 'randomize');
 	var f2 = gui.addFolder('Scribble Actions');
 	f2.add(params, 'generate');
+
+	f1.open();
+	f2.open();
+	gui.close();
 
 	//randomizeValues();
 	buildScribble();
