@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 	<head>
-		<title>TITLE</title>
+		<title>Curl Scribbles - Codevember 2017</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 
@@ -13,12 +13,33 @@
 
 		<div id="container"></div>
 		<div id="info" >
-			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
-			<h1>#. TITLE</h1>
+			<!--<p><a href="../n" >Next</a></p>-->
+			<h1>1. Curl Scribbles</h1>
+			<p>Scribble made with lines, curl noise and some post-processing (different blend modes, levels and gamma correction, FXAA, vignette and noise).</p>
+			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out.</p>
+			<p>Open <b>Controls</b> to play with the settings!</p>
+			<p id="moreDetails"><b>More details...</b></p>
 		</div>
 		<div id="details" class="hidden">
-			<h1>Details</h1>
-			<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Scribble made with lines, curl noise and some post-processing (different blend modes, levels and gamma correction, FXAA, vignette and noise).</p>
+				<p>There´s commented code for a particle system and to use <a href="https://github.com/spite/THREE.MeshLine" >THREE.MeshLine</a> instead of THREE.Line</p>
+				<p>Perlin noise from <a href="https://github.com/josephg/noisejs" rel="external" >noisejs</a>.</p>
+				<p>Code available in <a href="https://github.com/spite/codevember-2017/tree/master/curl-scribbles" >GitHub</a>.</p>
+				<h1>Controls</h1>
+				<p>Play with the params:</p>
+				<ul>
+					<li><b>stepSize</b>: the speed at which the line advances through the flow field: lower is straigther, higher is curlier.</li>
+					<li><b>initialSpread</b>: how spread are the starting points of each line.</li>
+					<li><b>randomness</b>: add random jitter to the lines.</li>
+					<li><b>toSphere</b>: contains the lines into the surface of a sphere.</li>
+					<li><b>inverse</b>: toggle color palettes.</li>
+				</ul>
+				<p>And then press <b>generate</b> to create a new scribble based on the current params.</p>
+				<p>Press <b>randomize</b> to randomize params.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
 		</div>
 
 		<script src="../js/Common.js"></script>
@@ -27,10 +48,212 @@
 		<script src="../js/perlin.js"></script>
 		<script src="../js/THREE.MeshLine.js"></script>
 		<script src="../js/Maf.js"></script>
+		<script src="../js/dat.gui.min.js"></script>
+
+<script id="particle-vs" type="x-shader/x-vertex">
+precision highp float;
+
+attribute vec3 position;
+attribute float vertexId;
+attribute float size;
+
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+uniform vec3 vertices[ 3 ];
+uniform vec2 uvs[ 3 ];
+
+uniform vec2 dimensions;
+uniform float scale;
+uniform vec3 color;
+
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vSize;
+
+const float PI = 3.14159265359;
+
+void main() {
+
+	int id = int( vertexId );
+	vec3 v = vertices[ id ];
+	vec4 p = modelViewMatrix * vec4( position, 1. );
+	p.xyz += scale * v * size;
+
+	vSize = size;
+	vUv = uvs[ id ];
+	vColor = color;
+
+	gl_Position = projectionMatrix * p;
+
+}
+
+</script>
+
+<script id="particle-fs" type="x-shader/x-vertex">
+precision highp float;
+
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vSize;
+
+uniform float opacity;
+
+void main() {
+
+	vec2 barycenter = vec2( .5, .6666 );
+	float d = smoothstep( .5, .55, 1. - 2. * length( vUv - barycenter ) );
+	float a = 1. - smoothstep( .9, 1., 5. * length( vUv - barycenter ) );
+	a *= vSize;
+	if( d <= 0. || a * opacity <= 0. ) discard;
+	gl_FragColor = vec4( vColor, a * opacity );
+
+}
+
+</script>
+
+<script type="x-shader/x-vertex" id="ortho-vs" >
+precision highp float;
+
+attribute vec3 position;
+attribute vec2 uv;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+varying vec2 vUv;
+
+void main() {
+
+	vUv = uv;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1. );
+
+}
+</script>
+
+<script type="x-shader/x-fragment" id="bump-fs" >
+precision highp float;
+
+uniform sampler2D inputTexture;
+uniform sampler2D paperTexture;
+uniform vec2 resolution;
+
+varying vec2 vUv;
+
+void main() {
+	vec2 offset = vec2( 1. ) / resolution;
+	vec4 paper = texture2D( paperTexture, vUv );
+	vec4 scribble = texture2D( inputTexture, vUv );
+	vec4 base = max(paper + scribble - 1.0, 0.0);
+	vec4 blend = 1. - texture2D( inputTexture, vUv - offset );
+	vec4 res = 1. - ((1.0 - base) * (1.0 - blend));
+	gl_FragColor = res;
+
+}
+</script>
+
+<script type="x-shader/x-fragment" id="final-fs" >
+precision highp float;
+
+uniform sampler2D inputTexture;
+uniform vec2 resolution;
+
+uniform float boost;
+uniform float reduction;
+
+uniform float amount;
+uniform float time;
+uniform float inverse;
+
+varying vec2 vUv;
+
+#define FXAA_REDUCE_MIN   (1.0/128.0)
+#define FXAA_REDUCE_MUL   (1.0/8.0)
+#define FXAA_SPAN_MAX     8.0
+
+float random(vec2 n, float offset ){
+	return .5 - fract(sin(dot(n.xy + vec2( offset, 0. ), vec2(12.9898, 78.233)))* 43758.5453);
+}
+
+vec3 gammaCorrect(vec3 color, float gamma){
+    return pow(color, vec3(1.0/gamma));
+}
+
+vec3 levelRange(vec3 color, float minInput, float maxInput){
+    return min(max(color - vec3(minInput), vec3(0.0)) / (vec3(maxInput) - vec3(minInput)), vec3(1.0));
+}
+
+vec3 finalLevels(vec3 color, float minInput, float gamma, float maxInput){
+    return gammaCorrect(levelRange(color, minInput, maxInput), gamma);
+}
+
+void main() {
+
+    vec2 res = 1. / resolution;
+
+    vec3 rgbNW = texture2D( inputTexture, ( vUv.xy + vec2( -1.0, -1.0 ) * res ) ).xyz;
+    vec3 rgbNE = texture2D( inputTexture, ( vUv.xy + vec2( 1.0, -1.0 ) * res ) ).xyz;
+    vec3 rgbSW = texture2D( inputTexture, ( vUv.xy + vec2( -1.0, 1.0 ) * res ) ).xyz;
+    vec3 rgbSE = texture2D( inputTexture, ( vUv.xy + vec2( 1.0, 1.0 ) * res ) ).xyz;
+    vec4 rgbaM  = texture2D( inputTexture,  vUv.xy  * res );
+    vec3 rgbM  = rgbaM.xyz;
+    vec3 luma = vec3( 0.299, 0.587, 0.114 );
+
+    float lumaNW = dot( rgbNW, luma );
+    float lumaNE = dot( rgbNE, luma );
+    float lumaSW = dot( rgbSW, luma );
+    float lumaSE = dot( rgbSE, luma );
+    float lumaM  = dot( rgbM,  luma );
+    float lumaMin = min( lumaM, min( min( lumaNW, lumaNE ), min( lumaSW, lumaSE ) ) );
+    float lumaMax = max( lumaM, max( max( lumaNW, lumaNE) , max( lumaSW, lumaSE ) ) );
+
+    vec2 dir;
+    dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
+    dir.y =  ((lumaNW + lumaSW) - (lumaNE + lumaSE));
+
+    float dirReduce = max( ( lumaNW + lumaNE + lumaSW + lumaSE ) * ( 0.25 * FXAA_REDUCE_MUL ), FXAA_REDUCE_MIN );
+
+    float rcpDirMin = 1.0 / ( min( abs( dir.x ), abs( dir.y ) ) + dirReduce );
+    dir = min( vec2( FXAA_SPAN_MAX,  FXAA_SPAN_MAX),
+          max( vec2(-FXAA_SPAN_MAX, -FXAA_SPAN_MAX),
+                dir * rcpDirMin)) * res;
+    vec4 rgbA = (1.0/2.0) * (
+    texture2D(inputTexture,  vUv.xy + dir * (1.0/3.0 - 0.5)) +
+    texture2D(inputTexture,  vUv.xy + dir * (2.0/3.0 - 0.5)));
+    vec4 rgbB = rgbA * (1.0/2.0) + (1.0/4.0) * (
+    texture2D(inputTexture,  vUv.xy + dir * (0.0/3.0 - 0.5)) +
+    texture2D(inputTexture,  vUv.xy + dir * (3.0/3.0 - 0.5)));
+    float lumaB = dot(rgbB, vec4(luma, 0.0));
+
+    vec4 color;
+    if ( ( lumaB < lumaMin ) || ( lumaB > lumaMax ) ) {
+        color = rgbA;
+    } else {
+        color = rgbB;
+    }
+
+	if( inverse == 1. ) {
+		color.rgb = finalLevels( 1. - color.rgb, 4.0/255.0, 1.5, 159.0/255.0);
+	} else {
+		color.rgb = finalLevels(color.rgb, 132.0/255.0, 1.5, 240.0/255.0);
+		//color.rgb *= vec3( 1., 0., 0. );
+	}
+
+    vec2 position = ( gl_FragCoord.xy / resolution ) - .5;
+	float vignette = length( position );
+    vignette = boost - vignette * reduction;
+
+    color.rgb *= vignette;
+
+    color += vec4( vec3( amount * random( vUv, time ) ), 1. );
+
+    gl_FragColor = color;
+
+}
+
+</script>
 
 <script>
-
-// https://raw.githubusercontent.com/josephg/noisejs/master/perlin.js
 
 'use strict';
 
@@ -41,7 +264,7 @@ var helper;
 
 var container = document.getElementById( 'container' );
 
-function noiseFunc( v ){
+function noiseFunc0( v ){
 
 	var s  = noise.simplex3( v.x, v.y, v.z );
 	var s1 = noise.simplex3( v.y - 19.1, v.z + 33.4, v.x + 47.2 );
@@ -49,6 +272,29 @@ function noiseFunc( v ){
 	return new THREE.Vector3( s , s1 , s2 );
 
 }
+
+function generateNoiseFunction() {
+
+	var a = Maf.randomInRange( -100, 100 );
+	var b = Maf.randomInRange( -100, 100 );
+	var c = Maf.randomInRange( -100, 100 );
+
+	var d = Maf.randomInRange( -100, 100 );
+	var e = Maf.randomInRange( -100, 100 );
+	var f = Maf.randomInRange( -100, 100 );
+
+	return function( v ) {
+
+		var s  = noise.simplex3( v.x, v.y, v.z );
+		var s1 = noise.simplex3( v.y + a, v.z + b, v.x + c );
+		var s2 = noise.simplex3( v.z + c, v.x + d, v.y + f );
+		return new THREE.Vector3( s , s1 , s2 );
+
+	}
+
+}
+
+var noiseFunc = generateNoiseFunction();
 
 var e = .1;
 var dx = new THREE.Vector3( e   , 0.0 , 0.0 );
@@ -59,6 +305,10 @@ var tmp = new THREE.Vector3();
 var res = new THREE.Vector3();
 
 function curl( p ){
+
+	p.x += ( .5 - Math.random() ) * params.randomness;
+	p.y += ( .5 - Math.random() ) * params.randomness;
+	p.z += ( .5 - Math.random() ) * params.randomness;
 
 	var p_x0 = noiseFunc( tmp.copy( p ).sub( dx ) );
 	var p_x1 = noiseFunc( tmp.copy( p ).add( dx ) );
@@ -78,7 +328,7 @@ function curl( p ){
 }
 
 var loader = new THREE.TextureLoader();
-var strokeTexure = loader.load( '../assets/stroke.png' );
+/*var strokeTexure = loader.load( '../assets/stroke.png' );
 
 var colors = [
 	0xed6a5a,
@@ -96,33 +346,137 @@ var colors = [
 	0xffe066,
 	0x247ba0,
 	0x70c1b3
-];
+];*/
 
-function initScene() {
+function createRenderTarget() {
+
+	return new THREE.WebGLRenderTarget( 1, 1, {
+		wrapS: THREE.ClampToEdgeWrapping,
+		wrapT: THREE.ClampToEdgeWrapping,
+		format: THREE.RGBFormat,
+		stencilBuffer: false,
+		depthBuffer: false
+	});
+
+}
+
+var scribbleFBO, bumpFBO;
+var bumpShader, finalShader;
+var orthoQuad, orthoCamera, orthoScene;
+var resolution = new THREE.Vector2( window.innerWidth, window.innerHeight );
+
+var NUM_POINTS = 1000;
+var particleSystem;
+
+function initParticles() {
+
+	var pData = [];
+	var idData = [];
+	var sizeData = [];
+	for( var j = 0; j < NUM_POINTS * 2; j += 3 ) {
+
+		var x = Maf.randomInRange( -2, 2 );
+		var y = Maf.randomInRange( -2, 2 );
+		var z = Maf.randomInRange( -2, 2 );
+		var s = Maf.randomInRange( .1, 1 );
+
+		pData.push( x );
+		pData.push( y );
+		pData.push( z );
+		idData.push( j % 3 );
+		sizeData.push( s );
+
+		pData.push( x );
+		pData.push( y );
+		pData.push( z );
+		idData.push( j % 3 + 1 );
+		sizeData.push( s );
+
+		pData.push( x );
+		pData.push( y );
+		pData.push( z );
+		idData.push( j % 3 + 2 );
+		sizeData.push( s );
+
+	}
+
+	var particleGeometry = new THREE.BufferGeometry();
+	var positions = new Float32Array( pData );
+	var indices = new Float32Array( idData );
+	var sizes = new Float32Array( sizeData );
+
+	particleGeometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+	particleGeometry.addAttribute( 'vertexId', new THREE.BufferAttribute( indices, 1 ) );
+	particleGeometry.addAttribute( 'size', new THREE.BufferAttribute( sizes, 1 ) );
+
+	var particleMaterial = new THREE.RawShaderMaterial( {
+		uniforms:{
+			scale: { type: 'f', value: .05 },
+			opacity: { type: 'f', value: .05 },
+			color: { type: 'c', value: new THREE.Color( 0x0 ) },
+			vertices: { type: 'v3v', value: [
+				new THREE.Vector3( -1, -1, 0 ),
+				new THREE.Vector3(  1, -1, 0 ),
+				new THREE.Vector3(  0,  1, 0 )
+			]},
+			uvs: { type: 'v2v', value: [
+				new THREE.Vector3( 0, 1 ),
+				new THREE.Vector3( 1, 1 ),
+				new THREE.Vector3( .5, 0 )
+			]}
+		},
+		vertexShader: document.getElementById( 'particle-vs' ).textContent,
+		fragmentShader: document.getElementById( 'particle-fs' ).textContent,
+		depthTest: false,
+		depthWrite: false,
+		transparent: true,
+	} );
+
+	particleSystem = new THREE.Mesh( particleGeometry, particleMaterial );
+	scene.add( particleSystem );
+
+}
+
+function randomizeValues() {
+
+	params.stepSize = Maf.randomInRange( .01, .05 );
+	params.initialSpread = Maf.randomInRange( .01, .05 );
+	params.toSphere = Math.random() > .5;
+
+}
+
+function buildScribble() {
+
+	while( scene.children.length ) {
+		scene.remove( scene.children[ 0 ] );
+	}
 
 	var center = new THREE.Vector3( Math.random(), Math.random(), Math.random() )
 	var material = new THREE.LineBasicMaterial( {
-		color: 0xffffff,
+		color: 0x0,
 		opacity: .1,
 		transparent: true,
-		blending: THREE.AdditiveBlending,
 		linewidth: 1,
 		depthTest: false,
 		depthWrite: false
 	} );
 
-	for( var i = 0; i < 200; i++ ) {
+	var origin = new THREE.Vector3();
+
+	for( var i = 0; i < 500; i++ ) {
 
 		var geometry = new THREE.Geometry();
 		var vertices = geometry.vertices;
-		var p = center.clone();
-		p.x += i;
-		p.set( .5 - Math.random(), .5 - Math.random(), .5 - Math.random() );
-		p.normalize();
+
+		origin.set( .5 - Math.random(), .5 - Math.random(), .5 - Math.random() );
+		origin.normalize().multiplyScalar( 30 * params.initialSpread );
 
 		for( var j = 0; j < 500; j++ ) {
-			p.add( curl( tmp.copy(p).multiplyScalar( .1 ) ) );
-			vertices.push( p.clone().multiplyScalar( 1 ).normalize() );
+			origin.add( curl( tmp.copy(origin).multiplyScalar( params.stepSize ) ) );
+			var fp = origin.clone();
+			if( params.toSphere ) fp.normalize();
+			else fp.multiplyScalar( .01 );
+			vertices.push( fp );
 		}
 
 		var line = new THREE.Line( geometry, material );
@@ -151,9 +505,76 @@ function initScene() {
 
 }
 
-function init() {
+var Params = function() {
+  this.stepSize = 0.01;
+  this.initialSpread = .37;
+  this.randomness = .0;
+  this.toSphere = false;
+  this.inverse = true;
+  this.generate = function() {
+  	noiseFunc = generateNoiseFunction();
+  	buildScribble();
+  };
+  this.randomize = function() {
+  	randomizeValues();
+  	buildScribble();
+  };
+};
+var params = new Params();
 
-	addCommonUI();
+function initScene() {
+
+	//initParticles();
+
+	scribbleFBO = createRenderTarget();
+	bumpFBO = createRenderTarget();
+
+	bumpShader = new THREE.RawShaderMaterial( {
+		uniforms: {
+			inputTexture: { type: 't', value: scribbleFBO.texture },
+			paperTexture: { type: 't', value: loader.load( '../assets/white-construction-paper-texture.jpg' ) },
+			resolution: { type: 'v2', value: resolution },
+		},
+		vertexShader: document.getElementById('ortho-vs').textContent,
+		fragmentShader: document.getElementById('bump-fs').textContent,
+	} );
+
+	finalShader = new THREE.RawShaderMaterial( {
+		uniforms: {
+			inputTexture: { type: 't', value: bumpFBO.texture },
+			resolution: { type: 'v2', value: resolution },
+			boost: { type: 'f', value: 1.1 },
+			reduction: { type: 'f', value: 1.1 },
+			amount: { type: 'f', value: .1 },
+			time: { type: 'f', value: 0 },
+			inverse: { type: 'f', value: 1 }
+		},
+		vertexShader: document.getElementById('ortho-vs').textContent,
+		fragmentShader: document.getElementById('final-fs').textContent,
+	} );
+
+	orthoScene = new THREE.Scene();
+	orthoCamera = new THREE.OrthographicCamera( 1 / - 2, 1 / 2, 1 / 2, 1 / - 2, .00001, 1000 );
+	orthoQuad = new THREE.Mesh( new THREE.PlaneBufferGeometry( 1, 1 ), finalShader );
+	orthoScene.add( orthoQuad );
+
+	var gui = new dat.GUI();
+	var f1 = gui.addFolder('Scribble Params');
+	f1.add(params, 'stepSize', 0, .05 ).listen();
+	f1.add(params, 'initialSpread', 0, 1 ).listen();
+	f1.add(params, 'randomness', 0, .5 ).listen();
+	f1.add(params, 'toSphere').listen();
+	f1.add(params, 'inverse').listen();
+	f1.add(params, 'randomize');
+	var f2 = gui.addFolder('Scribble Actions');
+	f2.add(params, 'generate');
+
+	//randomizeValues();
+	buildScribble();
+
+}
+
+function init() {
 
 	container = document.getElementById( 'container' );
 
@@ -161,13 +582,13 @@ function init() {
 
 	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
 	camera.target = new THREE.Vector3( 0, 0, 0 );
-	camera.position.set( 0, 0, 2 );
+	camera.position.set( 0, 0, 2.5 );
 	camera.lookAt( camera.target );
 	scene.add( camera );
 
 	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
 	renderer.setPixelRatio( window.devicePixelRatio );
-	renderer.setClearColor( 0x261b1f, 1 );
+	renderer.setClearColor( 0xffffff, 1 );
 	container.appendChild( renderer.domElement );
 
 	renderer.shadowMap.enabled = true;
@@ -179,6 +600,8 @@ function init() {
 	onWindowResized();
 
 	window.addEventListener( 'resize', onWindowResized );
+
+	addCommonUI(renderer.domElement);
 
 	animate();
 
@@ -193,6 +616,20 @@ function onWindowResized( event ) {
 	camera.aspect = w / h;
 	camera.updateProjectionMatrix();
 
+	var dPR = window.devicePixelRatio;
+	resolution.set( w * dPR, h * dPR );
+
+	scribbleFBO.setSize( w * dPR, h * dPR );
+	bumpFBO.setSize( w * dPR, h * dPR );
+
+	orthoQuad.scale.set( w, h, 1 );
+
+	orthoCamera.left   = - w / 2;
+	orthoCamera.right  =   w / 2;
+	orthoCamera.top    =   h / 2;
+	orthoCamera.bottom = - h / 2;
+	orthoCamera.updateProjectionMatrix();
+
 }
 
 function animate() {
@@ -201,7 +638,13 @@ function animate() {
 
 	controls.update();
 
-	renderer.render( scene, camera );
+	finalShader.uniforms.inverse.value = params.inverse ? 1: 0;
+
+	renderer.render( scene, camera, scribbleFBO );
+	orthoQuad.material = bumpShader;
+	renderer.render( orthoScene, orthoCamera, bumpFBO );
+	orthoQuad.material = finalShader;
+	renderer.render( orthoScene, orthoCamera );
 
 }
 

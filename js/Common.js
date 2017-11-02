@@ -40,6 +40,9 @@ function addCommonUI( element, callback ) {
 	document.body.appendChild( info );
 	info.addEventListener( 'click', toggleDetails );
 
+	document.body.querySelector( '#moreDetails' ).addEventListener( 'click', toggleDetails );
+	document.body.querySelector( '#close-details' ).addEventListener( 'click', toggleDetails );
+
 	var hub = document.createElement( 'p' );
 	hub.className = 'hub';
 	hub.innerHTML = '<a href="https://clicktorelease.com/code/codevember-2017/" >See other experiments for Codevember 2017</a>';

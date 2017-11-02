@@ -70,37 +70,43 @@ b{
 }
 #details{
 	position: absolute;
-	left: 20px; top: 80px; bottom: 80px; right: 20px;
-	background-color: rgba( 0, 0,0, .4);
-	opacity: 1;
-	transition: opacity 250ms ease-out, height 250ms ease-out;;
-	overflow: hidden;
-	padding: 20px;
-	margin-bottom: 1em;
-    overflow: auto;
+	right: 0;
+	width: 400px;
+	height: 100%;
+	background-color: black;
+	transition: transform 150ms ease-out;
+    z-index: 100;
 }
 #details.hidden{
-	opacity: 0;
-	height: 0;
-	padding: 0;
-	margin-bottom: 0;
+	transform: translate3d( 100%,0,0);
 }
 #details.hidden *{
 	pointer-events: none;
+}
+#details ul{
+	margin-left: 20px; margin-bottom: 1em;
+}
+#details .content{
+	padding: 20px;
+	position: absolute;
+	left: 0; top: 0; right: 0; bottom: 60px;
+	overflow: auto;
 }
 
 .hub{
 	position: absolute; bottom: 20px; right: 85px; color: white;
 	text-align: right; line-height: 24px;
 	height: 28px;
+	z-index: 1000;
 }
 .hub a{
 	color: inherit;
 }
 
-.button{
+body > .button{
 	position: absolute; border: 1px solid white; z-index: 1000; width: 28px; height: 28px; cursor: pointer; text-align: center; line-height: 24px; cursor:pointer;
 }
+
 .fullscreen-button{
 	right: 20px; bottom: 20px;
 }
