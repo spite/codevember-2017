@@ -15,7 +15,7 @@
 		<div id="info" >
 			<!--<p><a href="../n" >Next</a></p>-->
 			<h1>1. Curl Scribbles</h1>
-			<p>Scribble made with lines, curl noise and some post-processing (different blend modes, levels and gamma correction, FXAA, vignette and noise).</p>
+			<p>Scribble made with lines, curl noise and some post-processing (different blend modes, chromatic aberration, FXAA, levels and gamma correction and vignette).</p>
 			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out.</p>
 			<p>Open <b>Controls</b> to play with the settings!</p>
 			<p id="moreDetails"><b>More details...</b></p>
@@ -142,12 +142,37 @@ varying vec2 vUv;
 
 void main() {
 	vec2 offset = vec2( 1. ) / resolution;
-	vec4 paper = texture2D( paperTexture, vUv );
+	vec4 paper = .75 + .25* texture2D( paperTexture, vUv );
 	vec4 scribble = texture2D( inputTexture, vUv );
+	/*scribble += texture2D( inputTexture, vUv + vec2( 0., -2. ) / resolution );
+	scribble += texture2D( inputTexture, vUv + vec2( -2., 0. ) / resolution );
+	scribble += texture2D( inputTexture, vUv + vec2( 2., 0. ) / resolution );
+	scribble += texture2D( inputTexture, vUv + vec2( 0., 2. ) / resolution );
+	scribble /= 5.;*/
 	vec4 base = max(paper + scribble - 1.0, 0.0);
 	vec4 blend = 1. - texture2D( inputTexture, vUv - offset );
 	vec4 res = 1. - ((1.0 - base) * (1.0 - blend));
 	gl_FragColor = res;
+
+}
+</script>
+
+<script type="x-shader/x-fragment" id="shift-fs" >
+precision highp float;
+
+uniform sampler2D inputTexture;
+
+varying vec2 vUv;
+uniform vec2 delta;
+uniform vec2 resolution;
+
+void main() {
+
+	vec4 c1 = texture2D( inputTexture, vUv - delta / resolution.x );
+	vec4 c2 = texture2D( inputTexture, vUv );
+	vec4 c3 = texture2D( inputTexture, vUv + delta / resolution.y );
+
+	gl_FragColor = vec4( c1.r, c2.g, c3.b, c1.a + c2.a + c3.b );
 
 }
 </script>
@@ -232,11 +257,12 @@ void main() {
         color = rgbB;
     }
 
+ 	//color += vec4( vec3( amount * random( vUv, time ) ), 1. );
+
 	if( inverse == 1. ) {
 		color.rgb = finalLevels( 1. - color.rgb, 4.0/255.0, 1.5, 159.0/255.0);
 	} else {
 		color.rgb = finalLevels(color.rgb, 132.0/255.0, 1.5, 240.0/255.0);
-		//color.rgb *= vec3( 1., 0., 0. );
 	}
 
     vec2 position = ( gl_FragCoord.xy / resolution ) - .5;
@@ -244,8 +270,6 @@ void main() {
     vignette = boost - vignette * reduction;
 
     color.rgb *= vignette;
-
-    color += vec4( vec3( amount * random( vUv, time ) ), 1. );
 
     gl_FragColor = color;
 
@@ -360,8 +384,8 @@ function createRenderTarget() {
 
 }
 
-var scribbleFBO, bumpFBO;
-var bumpShader, finalShader;
+var scribbleFBO, bumpFBO, shiftFBO;
+var bumpShader, finalShader, shiftShader;
 var orthoQuad, orthoCamera, orthoScene;
 var resolution = new THREE.Vector2( window.innerWidth, window.innerHeight );
 
@@ -453,7 +477,7 @@ function buildScribble() {
 
 	var center = new THREE.Vector3( Math.random(), Math.random(), Math.random() )
 	var material = new THREE.LineBasicMaterial( {
-		color: 0x0,
+		color: 0x0d0d0d,
 		opacity: .1,
 		transparent: true,
 		linewidth: 1,
@@ -528,6 +552,7 @@ function initScene() {
 
 	scribbleFBO = createRenderTarget();
 	bumpFBO = createRenderTarget();
+	shiftFBO = createRenderTarget();
 
 	bumpShader = new THREE.RawShaderMaterial( {
 		uniforms: {
@@ -539,9 +564,19 @@ function initScene() {
 		fragmentShader: document.getElementById('bump-fs').textContent,
 	} );
 
-	finalShader = new THREE.RawShaderMaterial( {
+	shiftShader = new THREE.RawShaderMaterial( {
 		uniforms: {
 			inputTexture: { type: 't', value: bumpFBO.texture },
+			delta: { type: 'v2', value: new THREE.Vector2( 2 *window.devicePixelRatio, 0 ) },
+			resolution: { type: 'v2', value: resolution },
+		},
+		vertexShader: document.getElementById('ortho-vs').textContent,
+		fragmentShader: document.getElementById('shift-fs').textContent,
+	} );
+
+	finalShader = new THREE.RawShaderMaterial( {
+		uniforms: {
+			inputTexture: { type: 't', value: shiftFBO.texture },
 			resolution: { type: 'v2', value: resolution },
 			boost: { type: 'f', value: 1.1 },
 			reduction: { type: 'f', value: 1.1 },
@@ -625,6 +660,7 @@ function onWindowResized( event ) {
 
 	scribbleFBO.setSize( w * dPR, h * dPR );
 	bumpFBO.setSize( w * dPR, h * dPR );
+	shiftFBO.setSize( w * dPR, h * dPR );
 
 	orthoQuad.scale.set( w, h, 1 );
 
@@ -643,10 +679,13 @@ function animate() {
 	controls.update();
 
 	finalShader.uniforms.inverse.value = params.inverse ? 1: 0;
+	finalShader.uniforms.time.value = .00001 * performance.now();
 
 	renderer.render( scene, camera, scribbleFBO );
 	orthoQuad.material = bumpShader;
 	renderer.render( orthoScene, orthoCamera, bumpFBO );
+	orthoQuad.material = shiftShader;
+	renderer.render( orthoScene, orthoCamera, shiftFBO );
 	orthoQuad.material = finalShader;
 	renderer.render( orthoScene, orthoCamera );
 
