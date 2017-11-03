@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>TITLE</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
+			<h1>#. TITLE</h1>
+			<p>Lorem ipsum</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+		<script src="../js/perlin.js"></script>
+		<script src="../js/ImprovedNoise.js"></script>
+		<script src="../js/Maf.js"></script>
+		<script src="../js/THREE.FBOHelper.js"></script>
+
+<script>
+
+'use strict';
+
+var container, renderer, camera, controls, scene;
+var mesh;
+var n = new ImprovedNoise();
+
+var helper;
+
+var container = document.getElementById( 'container' );
+
+function noiseFunc0( v ){
+
+	var s  = noise.simplex3( v.x, v.y, v.z );
+	var s1 = noise.simplex3( v.y - 19.1, v.z + 33.4, v.x + 47.2 );
+	var s2 = noise.simplex3( v.z + 74.2, v.x - 124.5, v.y + 99.4 );
+	return new THREE.Vector3( s , s1 , s2 );
+
+}
+
+function generateNoiseFunction() {
+
+	var a = Maf.randomInRange( -100, 100 );
+	var b = Maf.randomInRange( -100, 100 );
+	var c = Maf.randomInRange( -100, 100 );
+
+	var d = Maf.randomInRange( -100, 100 );
+	var e = Maf.randomInRange( -100, 100 );
+	var f = Maf.randomInRange( -100, 100 );
+
+	return function( v ) {
+
+		var s  = noise.simplex3( v.x, v.y, v.z );
+		var s1 = noise.simplex3( v.y + a, v.z + b, v.x + c );
+		var s2 = noise.simplex3( v.z + c, v.x + d, v.y + f );
+		return new THREE.Vector3( s , s1 , s2 );
+
+	}
+
+}
+
+var noiseFunc = generateNoiseFunction();
+
+var e = .1;
+var dx = new THREE.Vector3( e   , 0.0 , 0.0 );
+var dy = new THREE.Vector3( 0.0 , e   , 0.0 );
+var dz = new THREE.Vector3( 0.0 , 0.0 , e   );
+
+var tmp = new THREE.Vector3();
+var res = new THREE.Vector3();
+
+function curl( p ){
+
+	var p_x0 = noiseFunc( tmp.copy( p ).sub( dx ) );
+	var p_x1 = noiseFunc( tmp.copy( p ).add( dx ) );
+	var p_y0 = noiseFunc( tmp.copy( p ).sub( dy ) );
+	var p_y1 = noiseFunc( tmp.copy( p ).add( dy ) );
+	var p_z0 = noiseFunc( tmp.copy( p ).sub( dz ) );
+	var p_z1 = noiseFunc( tmp.copy( p ).add( dz ) );
+
+	var x = p_y1.z - p_y0.z - p_z1.y + p_z0.y;
+	var y = p_z1.x - p_z0.x - p_x1.z + p_x0.z;
+	var z = p_x1.y - p_x0.y - p_y1.x + p_y0.x;
+
+	var divisor = 1.0 / ( 2.0 * e );
+	res.set( x, y, z ).multiplyScalar( divisor ).normalize();
+	return res;
+
+}
+
+function addDonut( origin ) {
+
+	var points = 100;
+
+	var p = new THREE.Vector3();
+	var vertices = [];
+
+	for( var j = 0, ptr = 0; j < points; j++, ptr += 3 ) {
+
+		var r = 3;
+		var a = j * 2 * Math.PI / ( points - 1 );
+		p.set( r * Math.cos( a ), 0, r * Math.sin( a ) );
+		p.add( origin );
+
+		for( var i = 0; i < 10; i++ ) {
+			p.add( curl( p.clone().multiplyScalar( .1 ) ).multiplyScalar( .2 ) );
+		}
+
+		vertices.push( p.clone() );
+
+	}
+
+	var path = new THREE.CatmullRomCurve3(vertices);
+	var geometry = new THREE.TubeGeometry( path, 300, .05, 18, true );
+
+	return geometry;
+
+}
+
+function initScene() {
+
+	var geometries = [];
+	var pos = new THREE.Vector3( 0, 0, 0 );
+	var range = .5;
+	for( var j =0 ; j < 30; j++ ) {
+		var pos = new THREE.Vector3( Maf.randomInRange( -range, range ) , 0, Maf.randomInRange( -range, range )  );
+		var dir = new THREE.Vector3( 0, 0, 0 );
+		var line = addDonut( pos, dir );
+		geometries.push( new THREE.BufferGeometry().fromGeometry( line ) );
+	}
+
+	var count = 0;
+	geometries.forEach( function( g ) { count += g.attributes.position.count; } );
+
+	var geometry = new THREE.BufferGeometry();
+
+	geometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array( count * 3 ), 3 ) );
+	geometry.addAttribute( 'normal', new THREE.BufferAttribute( new Float32Array( count * 3 ), 3 ) );
+
+	var ptr = 0;
+	geometries.forEach( function( g ) {
+
+		geometry.merge( g, ptr );
+		ptr += g.attributes.position.count;
+
+	})
+
+	var mesh = new THREE.Mesh( geometry, new THREE.MeshPhysicalMaterial() );
+	mesh.castShadow = true;
+	mesh.receiveShadow = true;
+	scene.add( mesh );
+
+	var light = new THREE.DirectionalLight( 0xffffff, 1 );
+	light.position.set( 0, 10, 0 );
+	light.castShadow = true;
+	scene.add( light );
+
+	var r = 6;
+	light.shadow.mapSize.set( 1024, 1024 );
+	light.shadow.camera.left = -r;
+	light.shadow.camera.right = r;
+	light.shadow.camera.top = r;
+	light.shadow.camera.bottom = -r;
+	light.shadow.camera.updateProjectionMatrix();
+
+	renderer.render( scene, camera );
+
+	helper.attach( light.shadow.map, 'shadow' );
+
+	var light = new THREE.HemisphereLight( 0xf86e7d, 0x6e0995, 1 );
+	scene.add( light );
+
+	var backdrop = new THREE.Mesh( new THREE.IcosahedronGeometry( 10, 3 ), new THREE.MeshBasicMaterial({
+		map: loader.load( '../assets/gradient1.jpg')
+	});
+
+}
+
+function init() {
+
+	addCommonUI();
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 0, 2, 6 );
+	camera.lookAt( camera.target );
+	scene.add( camera );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0x261b1f, 1 );
+	container.appendChild( renderer.domElement );
+
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+
+	helper = new FBOHelper( renderer );
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	initScene();
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+	helper.setSize( w,h );
+
+}
+
+function animate() {
+
+	requestAnimationFrame( animate );
+
+	controls.update();
+
+	renderer.render( scene, camera );
+	helper.update();
+
+}
+
+window.addEventListener( 'load', init );
+
+</script>
+
+	</body>
+</html>
