@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 	<head>
-		<title>TITLE</title>
+		<title>Alien Strands - Codevember 2017</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 
@@ -13,15 +13,17 @@
 
 		<div id="container"></div>
 		<div id="info" >
-			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
-			<h1>#. TITLE</h1>
-			<p>Lorem ipsum</p>
+			<p><a href="../curl-scribbles" >Previous</a> <!--| <a href="../n" >Next</a>--></p>
+			<h1>2. Alien Strands</h1>
+			<p>Another experiment with curl noise, this time using it to distort the points in a circle then used to create a tube geometry. Repeat for a few circles, render in several layers and add some post-processing.</p>
 			<p id="moreDetails"><b>More details...</b></p>
 		</div>
 		<div id="details" class="hidden">
 			<div class="content" >
 				<h1>Details</h1>
-				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<p>Another experiment with curl noise, this time using it to distort the points in a circle then used to create a tube geometry. Repeat for a few circles, render in several layers and add some post-processing.</p>
+				<p>Built with <a href="threejs.org">three.js</a>, Perlin noise from <a href="https://github.com/josephg/noisejs" rel="external" >noisejs</a>, <a href="https://github.com/spite/Maf.js/">Maf.js</a> and <a href="https://workshop.chromeexperiments.com/examples/gui/#1--Basic-Usage" >dat.gui</a>.</p>
+				<p>Code available on <a href="https://github.com/spite/codevember-2017/tree/master/curl-scribbles" >GitHub</a>.</p>
 				<a href="#" id="close-details">Close</a>
 			</div>
 		</div>
@@ -274,7 +276,7 @@ void main() {
 
 	vec4 color = mix( texture2D( inputTexture, vUv ), texture2D( blurredTexture, vUv ), depth );
 	//vec4 color =  texture2D( inputTexture, vUv );
-	//color += .1 * texture2D( depthTexture, vUv ).b;
+	color += .1 * texture2D( depthTexture, vUv ).b;
 
     vec2 position = ( gl_FragCoord.xy / resolution ) - .5;
 	float vignette = length( position );
@@ -362,7 +364,7 @@ var tmp = new THREE.Vector3();
 var res = new THREE.Vector3();
 
 var orthoQuad, orthoCamera, orthoScene;
-var baseFBO, depthFBO, shadowFBO, blurFBO;
+var baseFBO, depthFBO, blurFBO;
 var resolution = new THREE.Vector2();
 var combineShader, volumeShader, blurShader, assembleShader;
 
@@ -469,8 +471,13 @@ function initScene() {
 	mesh.receiveShadow = true;
 	scene.add( mesh );
 
-	var light = new THREE.DirectionalLight( 0xffffff, 1 );
+	var light = new THREE.DirectionalLight( 0xffffff, .5 );
 	light.position.set( 0, 10, 0 );
+	light.castShadow = true;
+	scene.add( light );
+
+	var light = new THREE.DirectionalLight( 0xffffff, .5 );
+	light.position.set( 4, 10, 0 );
 	light.castShadow = true;
 	scene.add( light );
 
@@ -490,7 +497,7 @@ function initScene() {
 	scene.add( light );
 
 	backdrop = new THREE.Mesh(
-		new THREE.IcosahedronGeometry( 10, 3 ),
+		new THREE.IcosahedronGeometry( 100, 3 ),
 		new THREE.MeshBasicMaterial({
 			map: loader.load( '../assets/gradient1.jpg'),
 			side: THREE.BackSide,
@@ -500,14 +507,10 @@ function initScene() {
 	scene.add( backdrop );
 
 	baseFBO = createRenderTarget();
-	shadowFBO = createRenderTarget();
-	//volumeFBO = createRenderTarget();
 	depthFBO = createRenderTarget();
 	blurFBO = createRenderTarget();
 
 	helper.attach( baseFBO, 'base' );
-	helper.attach( shadowFBO, 'shadow' );
-	//helper.attach( volumeFBO, 'volume' );
 	helper.attach( depthFBO, 'depth' );
 	helper.attach( blurFBO, 'blur' );
 
@@ -554,8 +557,6 @@ function initScene() {
 
 function init() {
 
-	addCommonUI();
-
 	container = document.getElementById( 'container' );
 
 	scene = new THREE.Scene();
@@ -575,8 +576,11 @@ function init() {
 	renderer.shadowMap.type = THREE.PCFShadowMap;
 
 	helper = new FBOHelper( renderer );
+	helper.show( false );
 
 	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	addCommonUI( renderer.domElement );
 
 	initScene();
 	onWindowResized();
@@ -604,12 +608,9 @@ function onWindowResized( event ) {
 
 	baseFBO.setSize( w * dPR, h * dPR );
 	depthFBO.setSize( w * dPR, h * dPR );
-	shadowFBO.setSize( w * dPR, h * dPR );
 	blurFBO.setSize( sW, sH );
 
 	var s = 2;
-	//volumeFBO.setSize( w /s, h /s );
-	//volumeShader.uniforms.resolution.value.set( w /s, h /s );
 
 	orthoQuad.scale.set( w, h, 1 );
 
@@ -630,6 +631,8 @@ function animate() {
 	controls.update();
 
 	var m = backdrop.material;
+
+	backdrop.position.copy( camera.position );
 
 	backdrop.material = depthMaterial;
 	mesh.material = depthMaterial;
