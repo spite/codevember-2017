@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>TITLE</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
+			<h1>#. TITLE</h1>
+			<p>Lorem ipsum</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+		<script src="../js/MeshCustomMaterial.js"></script>
+
+<script type="x-shader/x-vertex" id="spike-vs" >
+precision highp float;
+
+attribute vec3 position;
+attribute vec2 uv;
+attribute vec3 normal;
+
+#define POINTS 20
+
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+uniform mat3 normalMatrix;
+uniform vec3 points[ POINTS ];
+
+varying vec2 vUv;
+varying vec3 vPosition;
+varying vec3 vNormal;
+varying vec3 vEye;
+varying vec3 vWorldPosition;
+
+float smootherstep(float a, float b, float r) {
+	r = clamp(r, 0.0, 1.0);
+	r = r * r * r * (r * (6.0 * r - 15.0) + 10.0);
+	return mix(a, b, r);
+}
+
+vec3 calc( vec3 p, float mind, vec3 n ) {
+
+	float maxd = .6;
+	if( mind < maxd ) {
+		mind = 1. - clamp( mind, 0., maxd ) / maxd;
+		mind = smootherstep( 0., 1., mind );
+		//p += normalize( p ) * mind * .5;
+		p += n * mind * .5;
+	} else {
+		p = normalize( p );
+	}
+
+	return p;
+}
+
+vec3 d( vec3 p ) {
+
+	float mind = 1000.;
+	vec3 n;
+	for( int i = 0; i < POINTS; i++ ) {
+		float d = length( points[ i ] - p );
+		if( d < mind ) {
+			mind = d;
+			n = points[ i ];
+		}
+	}
+
+	vec3 nn = normalize( n );
+	return calc( p, mind, nn );
+
+}
+
+void main() {
+
+	vUv = uv;
+	vNormal = normal;
+
+	vec3 pos = d( position );
+
+	/*vec3 e = normalize( vec3( modelViewMatrix * vec4( pos, 1.0 ) ) );
+	vNormal = normalMatrix * normal;
+	vEye = vec3( modelViewMatrix * vec4( pos, 1. ) );*/
+
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( pos, 1. );
+
+	vPosition = pos;
+	vWorldPosition = ( modelViewMatrix * vec4( pos, 1. ) ).xyz;
+
+}
+</script>
+
+<script type="x-shader/x-vertex" id="spike-fs" >
+#extension GL_OES_standard_derivatives : enable
+
+precision highp float;
+
+uniform sampler2D tMatCap;
+
+varying vec2 vUv;
+varying vec3 vWorldPosition;
+varying vec3 vPosition;
+varying vec3 vNormal;
+varying vec3 vEye;
+
+void main() {
+
+	/*vec3 X = dFdx( vPosition );
+	vec3 Y = dFdy( vPosition );
+	vec3 normal = normalize( cross( X, Y ) );
+
+	vec3 r = reflect( normalize( vEye ), normalize( normal ) );
+	float m = 2. * sqrt( pow( r.x, 2. ) + pow( r.y, 2. ) + pow( r.z + 1., 2. ) );
+	vec2 vN = r.xy / m + .5;
+
+	vec3 base = texture2D( tMatCap, vN ).rgb;
+	gl_FragColor = vec4( base, 1. );*/
+
+//	gl_FragColor = vec4( .5 + .5 * normal, 1. );
+	gl_FragColor = vec4( .5 + .5 * vNormal, 1. );
+	float stripe = .5 + .5 * cos( length( vPosition ) );
+	stripe = length( vPosition );
+	gl_FragColor.rgb *= vec3( stripe );
+
+}
+</script>
+
+<script>
+
+'use strict';
+
+var container, renderer, camera, controls, scene;
+var mesh;
+
+var helper;
+
+var container = document.getElementById( 'container' );
+
+function pointsOnSphere(n) {
+
+    var upts = new Array();
+    var inc = Math.PI * (3 - Math.sqrt(5));
+    var off = 2.0 / n;
+    var x;
+    var y;
+    var z;
+    var r;
+    var phi;
+
+    for (var k = 0; k < n; k++){
+        y = k * off - 1 + (off /2);
+        r = Math.sqrt(1 - y * y);
+        phi = k * inc;
+        x = Math.cos(phi) * r;
+        z = Math.sin(phi) * r;
+
+        upts.push(new THREE.Vector3(x, y, z));
+    }
+
+    return upts;
+}
+
+function initScene() {
+
+	var points = pointsOnSphere( 20 );
+
+	var loader = new THREE.TextureLoader();
+
+	var vs = document.getElementById('spike-vs').textContent;
+
+	var sphereMaterial = new THREE.RawShaderMaterial( {
+		uniforms: {
+			tMatCap: { type: 't', value: loader.load( '../assets/matcap3.jpg' ) },
+			points: { type: 'v3v', value: points }
+		},
+		vertexShader: document.getElementById('spike-vs').textContent,
+		fragmentShader: document.getElementById('spike-fs').textContent,
+	} );
+
+	var sphere = new THREE.Mesh(
+		new THREE.IcosahedronGeometry( 1, 5 ),
+		sphereMaterial
+	);
+	scene.add( sphere );
+	sphere.receiveShadow = sphere.castShadow = true;
+
+	var light = new THREE.DirectionalLight( 0xffffff, 1 );
+	light.position.set( 0, 10, 0 );
+	light.castShadow = true;
+	scene.add( light );
+
+	var r = 7;
+	light.shadow.mapSize.set( 1024, 1024 );
+	light.shadow.camera.left = -r;
+	light.shadow.camera.right = r;
+	light.shadow.camera.top = r;
+	light.shadow.camera.bottom = -r;
+	light.shadow.camera.updateProjectionMatrix();
+
+	var geometry = new THREE.Geometry();
+	geometry.vertices = points;
+	var material = new THREE.PointsMaterial( { size: .01 } );
+	var particles = new THREE.Points( geometry, material );
+	scene.add( particles );
+
+}
+
+function init() {
+
+	addCommonUI();
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 0, 0, 2 );
+	camera.lookAt( camera.target );
+	scene.add( camera );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0x261b1f, 1 );
+	container.appendChild( renderer.domElement );
+
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	initScene();
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+}
+
+function animate() {
+
+	requestAnimationFrame( animate );
+
+	controls.update();
+
+	renderer.render( scene, camera );
+
+}
+
+window.addEventListener( 'load', init );
+
+</script>
+
+	</body>
+</html>
