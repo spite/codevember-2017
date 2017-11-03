@@ -16,14 +16,16 @@
 			<p><a href="../curl-scribbles" >Previous</a> <!--| <a href="../n" >Next</a>--></p>
 			<h1>2. Alien Strands</h1>
 			<p>Another experiment with curl noise, this time using it to distort the points in a circle then used to create a tube geometry. Repeat for a few circles, render in several layers and add some post-processing.</p>
+			<p><a href="#" id="generate" >Click here to generate a new one</a></p>
+			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out.</p>
 			<p id="moreDetails"><b>More details...</b></p>
 		</div>
 		<div id="details" class="hidden">
 			<div class="content" >
 				<h1>Details</h1>
 				<p>Another experiment with curl noise, this time using it to distort the points in a circle then used to create a tube geometry. Repeat for a few circles, render in several layers and add some post-processing.</p>
-				<p>Built with <a href="threejs.org">three.js</a>, Perlin noise from <a href="https://github.com/josephg/noisejs" rel="external" >noisejs</a>, <a href="https://github.com/spite/Maf.js/">Maf.js</a> and <a href="https://workshop.chromeexperiments.com/examples/gui/#1--Basic-Usage" >dat.gui</a>.</p>
-				<p>Code available on <a href="https://github.com/spite/codevember-2017/tree/master/curl-scribbles" >GitHub</a>.</p>
+				<p>Built with <a href="threejs.org">three.js</a>, Perlin noise from <a href="https://github.com/josephg/noisejs" rel="external" >noisejs</a> and <a href="https://github.com/spite/Maf.js/">Maf.js</a>.</p>
+				<p>Code available on <a href="https://github.com/spite/codevember-2017/tree/master/alien-strands" >GitHub</a>.</p>
 				<a href="#" id="close-details">Close</a>
 			</div>
 		</div>
@@ -424,7 +426,11 @@ function addCurve( origin ) {
 
 }
 
-function initScene() {
+function generate() {
+
+	noiseFunc = generateNoiseFunction();
+
+	if( mesh ) scene.remove( mesh );
 
 	var geometries = [];
 	var pos = new THREE.Vector3( 0, 0, 0 );
@@ -453,6 +459,16 @@ function initScene() {
 
 	})
 
+	geometry.center();
+	mesh = new THREE.Mesh( geometry, material );
+	mesh.castShadow = true;
+	mesh.receiveShadow = true;
+	scene.add( mesh );
+
+}
+
+function initScene() {
+
 	var loader = new THREE.TextureLoader();
 
 	material = new THREE.MeshStandardMaterial({
@@ -465,11 +481,7 @@ function initScene() {
 		normalMap: loader.load( '../assets/pumice/normal.png')
 	});
 
-	geometry.center();
-	mesh = new THREE.Mesh( geometry, material );
-	mesh.castShadow = true;
-	mesh.receiveShadow = true;
-	scene.add( mesh );
+	generate();
 
 	var light = new THREE.DirectionalLight( 0xffffff, .5 );
 	light.position.set( 0, 10, 0 );
@@ -586,6 +598,10 @@ function init() {
 	onWindowResized();
 
 	window.addEventListener( 'resize', onWindowResized );
+
+	document.getElementById( 'generate' ).addEventListener( 'click', function() {
+		generate();
+	})
 
 	animate();
 
