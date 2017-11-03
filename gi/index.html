@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>TITLE</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
+			<h1>#. TITLE</h1>
+			<p>Lorem ipsum</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+		<script src="../js/CubemapToEquirectangular.js"></script>
+		<script src="../js/THREE.FBOHelper.js"></script>
+
+<script type="x-shader/x-vertex" id="ortho-vs" >
+precision highp float;
+
+attribute vec3 position;
+attribute vec2 uv;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+varying vec2 vUv;
+
+void main() {
+
+	vUv = uv;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1. );
+
+}
+</script>
+
+<script id="light-fs" type="x-shader/x-vertex">
+precision highp float;
+
+uniform sampler2D inputTexture;
+uniform vec3 color;
+
+varying vec2 vUv;
+
+void main() {
+	//gl_FragColor = vec4( color, 1.);
+	gl_FragColor = texture2D( inputTexture, vUv );
+}
+</script>
+
+<script type="x-shader/x-vertex" id="gi-vs" >
+precision highp float;
+
+attribute vec3 position;
+attribute vec2 uv;
+attribute vec3 normal;
+
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat3 normalMatrix;
+uniform mat4 projectionMatrix;
+
+varying vec2 vUv;
+varying vec3 vPosition;
+varying vec3 vNormal;
+
+void main() {
+
+	vUv = uv;
+	vNormal = normal;
+	vec4 p = modelViewMatrix * vec4( position, 1. );
+	vPosition = ( modelMatrix * vec4( position, 1. ) ).xyz;
+	gl_Position = projectionMatrix * p;
+
+}
+</script>
+
+<script id="gi-fs" type="x-shader/x-vertex">
+precision highp float;
+
+uniform sampler2D lightMap;
+uniform vec3 color;
+uniform float probeSide;
+
+varying vec2 vUv;
+varying vec3 vPosition;
+varying vec3 vNormal;
+
+float round( float v ) {
+	float t = fract( v );
+	if( t > .5 ) return ceil( v );
+	else return floor( v );
+}
+
+void main() {
+
+	float PI = 3.14159265358979323846264;
+	vec3 normPos = .5 + .5 * ( vPosition / 1.5 );
+	float x = round( normPos.x * ( probeSide - 1. ) ) / ( probeSide - 1. );
+	float y = round( normPos.y * ( probeSide - 1. ) ) / ( probeSide - 1. );
+	float z = round( normPos.z * ( probeSide - 1. ) ) / ( probeSide - 1. );
+	//z = 1. - z;
+	//y = 1. - y;
+	vec2 uv = vec2( x, ( z * probeSide + y ) / ( probeSide * probeSide ) );
+	uv.y = 1. - uv.y;
+
+	vec3 n = normalize( vNormal );
+	float yaw = .5 - atan( n.z, - n.x ) / ( 2.0 * PI );
+	float pitch = .5 - asin( n.y ) / PI;
+	vec2 luv = uv + vec2( yaw, 1. - pitch ) / vec2( 4., 16. );
+	vec4 color = texture2D( lightMap, luv );
+	gl_FragColor = color;
+
+	//gl_FragColor = texture2D( lightMap, uv ) ;
+	//gl_FragColor = vec4( uv, 0., 1. );
+	//gl_FragColor = vec4( x,y,z,1.);
+}
+</script>
+
+<script id="probe-vs" type="x-shader/x-vertex">
+attribute vec3 position;
+attribute vec2 uv;
+attribute vec3 normal;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+varying vec3 vPosition;
+
+void main() {
+
+	vPosition = position;
+	vec4 p = modelViewMatrix * vec4( position, 1. );
+	gl_Position = projectionMatrix * p;
+
+}
+</script>
+
+<script id="probe-fs" type="x-shader/x-vertex">
+precision highp float;
+
+uniform samplerCube map;
+
+varying vec3 vPosition;
+
+void main() {
+	gl_FragColor = textureCube( map, normalize( vPosition ) );
+}
+</script>
+
+<script>
+
+'use strict';
+
+var container, renderer, camera, controls, scene;
+var mesh;
+
+var helper;
+
+var container = document.getElementById( 'container' );
+
+var convert;
+
+var probeSide = 4;
+var probeMapWidth = 64
+var probeMapHeight = 32;
+
+function createRenderTarget() {
+
+	return new THREE.WebGLRenderTarget( 1, 1, {
+		wrapS: THREE.ClampToEdgeWrapping,
+		wrapT: THREE.ClampToEdgeWrapping,
+		format: THREE.RGBFormat,
+		stencilBuffer: false,
+		depthBuffer: false
+	});
+
+}
+
+var lightMap = createRenderTarget();
+lightMap.setSize( probeSide * probeMapWidth, probeSide * probeSide * probeMapHeight );
+
+var orthoQuad, orthoCamera, orthoScene;
+
+/*orthoScene = new THREE.Scene();
+orthoCamera = new THREE.OrthographicCamera( 1 / - 2, 1 / 2, 1 / 2, 1 / - 2, .00001, 1000 );
+orthoQuad = new THREE.Mesh( new THREE.PlaneBufferGeometry( 1, 1 ), finalShader );
+orthoScene.add( orthoQuad );*/
+
+var mapQuad, mapCamera, mapScene;
+
+var lightShader = new THREE.RawShaderMaterial( {
+	uniforms: {
+		inputTexture: { type: 't', value: null },
+		color: { type: 'c', value: new THREE.Color() }
+		//resolution: { type: 'v2', value: resolution },
+	},
+	vertexShader: document.getElementById('ortho-vs').textContent,
+	fragmentShader: document.getElementById('light-fs').textContent,
+} );
+mapScene = new THREE.Scene();
+mapCamera = new THREE.OrthographicCamera( 1 / - 2, 1 / 2, 1 / 2, 1 / - 2, .00001, 1000 );
+mapQuad = new THREE.Mesh( new THREE.PlaneBufferGeometry( 1, 1 ), lightShader );
+mapScene.add( mapQuad );
+
+function LightProbe( p, index ) {
+
+	this.index = index;
+
+	this.probe = new THREE.CubeCamera( .00001, 10, 4 );
+	this.probe.position.copy( p );
+
+	this.dummy = new THREE.Mesh(
+		new THREE.IcosahedronGeometry( .1, 2 ),
+		new THREE.RawShaderMaterial({
+			uniforms:{
+				map: { type: 't', value: this.probe.renderTarget.texture }
+			},
+			vertexShader: document.getElementById( 'probe-vs' ).textContent,
+			fragmentShader: document.getElementById( 'probe-fs' ).textContent,
+		})
+	);
+	this.dummy.position.copy( p );
+	scene.add( this.dummy );
+
+}
+
+LightProbe.prototype.update = function() {
+
+	this.probe.update( renderer, scene );
+	convert.convert( this.probe, false );
+
+	var w = lightMap.width;
+	var h = lightMap.height;
+
+	var x = -.5 * w + .5 * probeMapWidth + this.index.x * probeMapWidth;//( this.index.x * probeMapWidth + this.index.y * probeMapWidth ) - .5 * w;
+	var y = -.5 * h + .5 * probeMapHeight + this.index.y * probeMapHeight + ( this.index.z * probeSide ) * probeMapHeight;
+	mapQuad.scale.set( probeMapWidth, probeMapHeight, 1 );
+	mapQuad.position.set( x, y, 0 );
+
+	mapCamera.left   = - w / 2;
+	mapCamera.right  =   w / 2;
+	mapCamera.top    =   h / 2;
+	mapCamera.bottom = - h / 2;
+	mapCamera.updateProjectionMatrix();
+
+	lightShader.uniforms.color.value.setRGB( Math.random(), Math.random(), Math.random() );
+	lightShader.uniforms.inputTexture.value = convert.output.texture;
+	renderer.render( mapScene, mapCamera, lightMap );
+
+}
+
+LightProbe.prototype.display = function( display ) {
+
+	this.dummy.visible = display;
+
+}
+
+var probes = [];
+var cube, room;
+
+function initScene() {
+
+	helper.attach( lightMap, 'lightmap' );
+
+	room = new THREE.Mesh(
+	    //new THREE.BoxBufferGeometry( 3, 3, 3 ),
+	    new THREE.PlaneBufferGeometry( 3, 3 ),
+	    new THREE.MeshBasicMaterial({
+	    	color: 0xff00ff,
+	    	emissive: 0xffffff,
+	    	side: THREE.DoubleSide
+	    })
+	);
+	room.rotation.x = Math.PI / 2;
+	room.position.y = -1.5;
+	scene.add( room );
+	room.receiveShadow = true;
+
+	cube = new THREE.Mesh(
+	    new THREE.IcosahedronGeometry( 1, 3),
+	    new THREE.MeshBasicMaterial({
+	    	color: 0xffff00,
+	    	side: THREE.FrontSide
+	    })
+	);
+	cube.position.set( 0,0,0);
+	//cube.rotation.set( Math.random() * 2 * Math.PI, Math.random() * 2 * Math.PI, Math.random() * 2 * Math.PI );
+	scene.add( cube );
+	cube.castShadow = true;
+	cube.receiveShadow = true;
+
+	var cube2 = new THREE.Mesh(
+	    new THREE.BoxBufferGeometry( 1.4,1.4,1.4),
+	    new THREE.MeshPhongMaterial({
+	    	color: 0xffffff,
+	    	side: THREE.FrontSide
+	    })
+	);
+	cube2.position.set( -1, 1, -1 );
+	//cube2.rotation.set( Math.random() * 2 * Math.PI, Math.random() * 2 * Math.PI, Math.random() * 2 * Math.PI );
+	//scene.add( cube2 );
+	cube2.castShadow = true;
+	cube2.receiveShadow = true;
+
+	var light = new THREE.PointLight( 0xffffff, 2, 100 );
+	light.position.set( 0, 1.4, 0 );
+//	scene.add( light );
+	light.castShadow = true;
+
+	var r = 1.5;
+	var step = 3 / ( probeSide - 1 );
+
+	var px = 0, py = 0, pz = 0;
+	for( var z = -r; z <= r; z += step ){
+		for( var y = -r; y <= r; y += step ){
+			for( var x = -r; x <= r; x += step ){
+				var probe = new LightProbe( new THREE.Vector3( x, y, z ), new THREE.Vector3( px, py, pz ))
+				probes.push( probe );
+				px += 1;
+			}
+			py += 1;
+			px = 0;
+		}
+		pz += 1;
+		px = 0;
+		py = 0;
+	}
+
+	updateProbes();
+
+	var giMaterial = new THREE.RawShaderMaterial( {
+		uniforms: {
+			lightMap: { type: 't', value: lightMap },
+			probeSide: { type: 'f', value: probeSide }
+		},
+		side: THREE.DoubleSide,
+		vertexShader: document.getElementById('gi-vs').textContent,
+		fragmentShader: document.getElementById('gi-fs').textContent,
+	} );
+
+	room.material = giMaterial;
+
+	var giMaterial = new THREE.RawShaderMaterial( {
+		uniforms: {
+			lightMap: { type: 't', value: lightMap },
+			probeSide: { type: 'f', value: probeSide }
+		},
+		vertexShader: document.getElementById('gi-vs').textContent,
+		fragmentShader: document.getElementById('gi-fs').textContent,
+	} );
+
+	cube.material = giMaterial;
+
+	var giMaterial = new THREE.RawShaderMaterial( {
+		uniforms: {
+			lightMap: { type: 't', value: lightMap },
+			probeSide: { type: 'f', value: probeSide }
+		},
+		vertexShader: document.getElementById('gi-vs').textContent,
+		fragmentShader: document.getElementById('gi-fs').textContent,
+	} );
+
+	cube2.material = giMaterial;
+}
+
+function updateProbes() {
+
+	renderer.autoClear = false;
+
+	probes.forEach( p => p.display( false ))
+	probes.forEach( p => p.update( true ))
+	probes.forEach( p => p.display( true ))
+
+	renderer.autoClear = true;
+
+}
+
+function init() {
+
+	addCommonUI();
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 0, 0, 2 );
+	camera.lookAt( camera.target );
+	scene.add( camera );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0x261b1f, 1 );
+	container.appendChild( renderer.domElement );
+
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+
+	helper = new FBOHelper( renderer );
+
+	convert = new CubemapToEquirectangular( renderer, false );
+	convert.setSize( probeMapWidth, probeMapHeight );
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	initScene();
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+	helper.setSize( w, h );
+}
+
+function animate() {
+
+	requestAnimationFrame( animate );
+
+	controls.update();
+	//cube.rotation.x += .01;
+	//updateProbes();
+
+	renderer.render( scene, camera );
+	helper.update();
+
+}
+
+window.addEventListener( 'load', init );
+
+</script>
+
+	</body>
+</html>
