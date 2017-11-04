@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 	<head>
-		<title>TITLE</title>
+		<title>Rainbow Spikeball - Codevember 2017</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 
@@ -13,15 +13,34 @@
 
 		<div id="container"></div>
 		<div id="info" >
-			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
-			<h1>#. TITLE</h1>
-			<p>Lorem ipsum</p>
+			<p><a href="../alien-strands" >Previous</a> <!--| <a href="../n" >Next</a>--></p>
+			<h1>#. Rainbow Spikeball</h1>
+			<p>Generating spikes from a icosahedron geometry, and playing with smoothing functions to generate the spikes.</p>
+			<p><b>Click or tap and drag</b> to move the camera.</p>
+			<p>Open <b>Controls</b> to play with the settings!</p>
 			<p id="moreDetails"><b>More details...</b></p>
 		</div>
 		<div id="details" class="hidden">
 			<div class="content" >
 				<h1>Details</h1>
-				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<p>Generating spikes from a icosahedron geometry, and playing with smoothing functions to generate the spikes.</p>
+				<p>Built with <a href="threejs.org">three.js</a>, <a href="https://github.com/spite/Maf.js/">Maf.js</a>, <a href="https://workshop.chromeexperiments.com/examples/gui/#1--Basic-Usage" >dat.gui</a> and <a href="https://github.com/kaimallea/isMobile" >isMobile</a>.</p>
+				<p>Code available on <a href="https://github.com/spite/codevember-2017/tree/master/curl-scribbles" >GitHub</a>.</p>
+				<h1>Controls</h1>
+				<p>Play with the params:</p>
+				<ul>
+					<li><b>points</b>: number of spikes or holes to generate.</li>
+					<li><b>distance</b>: how wide the spike or hole is.</li>
+					<li><b>force</b>: how much the spike extends or the hole sinks from the sphere surface.</li>
+					<li><b>mode</b>: different equations to profile the spike or hole.</li>
+					<li><b>bulge</b>: makes spikes a little more bulgy.</li>
+				</ul>
+				<ul>
+					<li><b>shadow</b>: use custom shadow mapping.</li>
+					<li><b>occlusion</b>: use distance from center as occlusion.</li>
+					<li><b>sss</b>: use depth buffer info to simulate subsurface scattering.</li>
+					<li><b>stripes</b>: add stripes.</li>
+				</ul>
 				<a href="#" id="close-details">Close</a>
 			</div>
 		</div>
@@ -31,6 +50,9 @@
 		<script src="../js/OrbitControls.js"></script>
 		<script src="../js/THREE.FBOHelper.js"></script>
 		<script src="../js/Maf.js"></script>
+		<script src="../js/dat.gui.min.js"></script>
+		<script src="../js/isMobile.min.js"></script>
+		<script src="../js/perlin.js"></script>
 
 <script type="x-shader/x-vertex" id="spike-vs" >
 precision highp float;
@@ -39,17 +61,17 @@ attribute vec3 position;
 attribute vec2 uv;
 attribute vec3 normal;
 
-#define POINTS 200
+#define POINTS 100
 
 uniform float numPoints;
 uniform mat4 modelMatrix;
 uniform mat4 modelViewMatrix;
 uniform mat4 projectionMatrix;
 uniform mat3 normalMatrix;
-uniform vec3 points[ POINTS ];
+uniform vec4 points[ POINTS ];
 
-varying vec2 vUv;
-varying vec3 vWorldPosition;
+//varying vec2 vUv;
+//varying vec3 vWorldPosition;
 
 uniform mat4 shadowMVP;
 uniform mat4 shadowV;
@@ -60,14 +82,15 @@ uniform sampler2D depthTexture;
 uniform float maxd;
 uniform float distortion;
 uniform float smoothness;
-uniform float blend;
+uniform float mode;
+uniform float bulge;
 
 varying vec4 vShadowCoord;
 varying vec3 vPosition;
 varying vec3 vNormal;
-varying float occluded;
+//varying float occluded;
 varying float bias;
-varying float vVisiblity;
+//varying float vVisiblity;
 
 const mat4 biasMatrix = mat4(
 	0.5, 0.0, 0.0, 0.0,
@@ -82,18 +105,22 @@ float smootherstep(float a, float b, float r) {
 	return mix(a, b, r);
 }
 
-vec3 calc( vec3 p, float mind, vec3 n ) {
+vec3 calc( vec3 p, float mind, vec3 n, float d ) {
 
 	if( mind < maxd ) {
 
 		mind = 1. - clamp( mind, 0., maxd ) / maxd;
 
-		mind = smootherstep( .5 - smoothness, .5 + smoothness, mind );
-		//mind = clamp( mind, .5 - smoothness, .5 + smoothness );
+		if( mode == 1. ) { mind = smoothstep( 0., 1., mind ); }
+		if( mode == 2. ) { mind = sqrt( mind ); }
+		if( mode == 3. ) { mind = smootherstep( 0., 1., sqrt( mind ) ); }
+		if( mode == 4. ) { mind = pow( mind, 2. ); }
+		//if( mode == 5. ) { mind = log( mind - 1. ); }
+		//if( mode == 6. ) { mind = exp( mind ); }
 
-		p = p + normalize( mix( normalize( p) , normalize( n ), blend ) ) * mind * distortion;
-	} else {
-		p = normalize( p );
+		if( bulge == 0. ) { p += normalize( p ) * mind * d; }
+		else { p += n * mind * d; }
+
 	}
 
 	return p;
@@ -102,10 +129,10 @@ vec3 calc( vec3 p, float mind, vec3 n ) {
 vec3 d( vec3 p ) {
 
 	float mind = 1000.;
-	vec3 n;
+	vec4 n;
 	for( int i = 0; i < POINTS; i++ ) {
 		if( i < int( numPoints ) ) {
-			float d = length( points[ i ] - p );
+			float d = length( points[ i ].xyz - p );
 			if( d < mind ) {
 				mind = d;
 				n = points[ i ];
@@ -113,14 +140,14 @@ vec3 d( vec3 p ) {
 		}
 	}
 
-	vec3 nn = normalize( n );
-	return calc( p, mind, nn );
+	vec3 nn = normalize( n.xyz );
+	return calc( p, mind, nn, distortion );//* abs( n.w ) );
 
 }
 
 void main() {
 
-	vUv = uv;
+	//vUv = uv;
 	vNormal = normal;
 
 	vec3 pos = d( position );
@@ -128,7 +155,7 @@ void main() {
 	gl_Position = projectionMatrix * modelViewMatrix * vec4( pos, 1. );
 
 	vPosition = pos;
-	vWorldPosition = ( modelViewMatrix * vec4( pos, 1. ) ).xyz;
+	//vWorldPosition = ( modelViewMatrix * vec4( pos, 1. ) ).xyz;
 
 	vec4 p = vec4( pos, 1. );
 	vShadowCoord = biasMatrix * shadowP * modelMatrix * shadowV * p;
@@ -150,19 +177,23 @@ precision highp float;
 uniform sampler2D tMatCap;
 uniform float shadow;
 
-varying vec2 vUv;
-varying vec3 vWorldPosition;
+//varying vec2 vUv;
+//varying vec3 vWorldPosition;
 
 uniform sampler2D depthTexture;
 uniform vec2 resolution;
 uniform sampler2D projector;
+uniform float useShadow;
+uniform float useStripes;
+uniform float useOcclusion;
+uniform float useDepthAsSSS;
 
 varying vec4 vShadowCoord;
 varying vec3 vNormal;
 varying vec3 vPosition;
-varying float occluded;
+//varying float occluded;
 varying float bias;
-varying float vVisiblity;
+//varying float vVisiblity;
 
 float sampleVisibility( vec3 coord ) {
 	float depth = texture2D( depthTexture, coord.xy ).r;
@@ -170,8 +201,10 @@ float sampleVisibility( vec3 coord ) {
 	return visibility;
 }
 
-float applyOverlayToChannel( float base, float blend ) {
-	return (base < 0.5 ? (2.0 * base * blend) : (1.0 - 2.0 * (1.0 - base) * (1.0 - blend)));
+float applyOverlayToChannel( float base, float blend, float opacity ) {
+	float res = (base < 0.5 ? (2.0 * base * blend) : (1.0 - 2.0 * (1.0 - base) * (1.0 - blend)));
+	res *= opacity + base * ( 1. - opacity );
+	return res;
 }
 
 
@@ -187,6 +220,19 @@ float rand(vec2 co){
     return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
 }
 
+float blendOverlay(float base, float blend) {
+	return base<0.5?(2.0*base*blend):(1.0-2.0*(1.0-base)*(1.0-blend));
+}
+
+vec3 blendOverlay(vec3 base, vec3 blend) {
+	return vec3(blendOverlay(base.r,blend.r),blendOverlay(base.g,blend.g),blendOverlay(base.b,blend.b));
+}
+
+vec3 blendOverlay(vec3 base, vec3 blend, float opacity) {
+	return (blendOverlay(base, blend) * opacity + base * (1.0 - opacity));
+}
+
+
 void main() {
 
 	if( shadow == 1. ) {
@@ -195,21 +241,20 @@ void main() {
 	}
 
 	const int NUM_TAPS = 12;
-	float max_siz = 42.0;// * (0.5+0.5*sin(iGlobalTime));
 
-	vec2 fTaps_Poisson[NUM_TAPS];
-	fTaps_Poisson[0]  = vec2(-.326,-.406);
-	fTaps_Poisson[1]  = vec2(-.840,-.074);
-	fTaps_Poisson[2]  = vec2(-.696, .457);
-	fTaps_Poisson[3]  = vec2(-.203, .621);
-	fTaps_Poisson[4]  = vec2( .962,-.195);
-	fTaps_Poisson[5]  = vec2( .473,-.480);
-	fTaps_Poisson[6]  = vec2( .519, .767);
-	fTaps_Poisson[7]  = vec2( .185,-.893);
-	fTaps_Poisson[8]  = vec2( .507, .064);
-	fTaps_Poisson[9]  = vec2( .896, .412);
-	fTaps_Poisson[10] = vec2(-.322,-.933);
-	fTaps_Poisson[11] = vec2(-.792,-.598);
+	vec3 fTaps_Poisson[NUM_TAPS];
+	fTaps_Poisson[0]  = vec3(-.326,-.406, -.313);
+	fTaps_Poisson[1]  = vec3(-.840,-.074, .024);
+	fTaps_Poisson[2]  = vec3(-.696, .457, -.212);
+	fTaps_Poisson[3]  = vec3(-.203, .621, .437);
+	fTaps_Poisson[4]  = vec3( .962,-.195, .322);
+	fTaps_Poisson[5]  = vec3( .473,-.480, -.40);
+	fTaps_Poisson[6]  = vec3( .519, .767, -.896);
+	fTaps_Poisson[7]  = vec3( .185,-.893, -.617);
+	fTaps_Poisson[8]  = vec3( .507, .064, .768);
+	fTaps_Poisson[9]  = vec3( .896, .412, .243);
+	fTaps_Poisson[10] = vec3(-.322,-.933, -.662);
+	fTaps_Poisson[11] = vec3(-.792,-.598, -.323);
 
 	float shadow = 0.;
 	vec3 shadowCoord = vShadowCoord.xyz / vShadowCoord.w;
@@ -229,44 +274,35 @@ void main() {
 		shadow /= 4.;
 	}*/
 
-	for (int i=0; i < NUM_TAPS; i++)
-	{
-		vec2 ofs = fTaps_Poisson[i] / 100.;
-		shadow += sampleVisibility( shadowCoord + vec3( ofs, 0. ) );
+	if( useShadow == 1. ) {
+		for (int i=0; i < NUM_TAPS; i++) {
+			vec3 ofs = fTaps_Poisson[i] / 200.;
+			shadow += sampleVisibility( shadowCoord + vec3( ofs ) );
+		}
+		shadow /= float( NUM_TAPS );
 	}
-	shadow /= float( NUM_TAPS );
 
 	//shadow += vVisiblity;
 	//shadow /= 2.;
 
-	float stripe = .5 + .5 * cos( 100. * length( vPosition ) );
-	stripe = smoothstep( .85, 1., stripe );
-
 	float occlusion = .3 * length( vPosition );
-	shadow *= occlusion;
-	shadow = .5 * smoothstep( 0., .4, shadow );
+	shadow = clamp( shadow, 0., 1. );
 
 	vec4 color = vec4( .5 + .5 * vNormal, 1. );
-	//color.rgb = applyScreen( color.rgb, .1 * vec3( stripe ) );
 
-/*	color.r = applyOverlayToChannel( color.r, shadow );
-	color.g = applyOverlayToChannel( color.g, shadow );
-	color.b = applyOverlayToChannel( color.b, shadow );
-*/
-	//color.rgb *= shadow;
-
-	/*color.r = applySoftLightToChannel( color.r, shadow );
-	color.g = applySoftLightToChannel( color.g, shadow );
-	color.b = applySoftLightToChannel( color.b, shadow );*/
+	if( useStripes == 1. ){
+		float stripe = .5 + .5 * cos( 100. * length( vPosition ) );
+		stripe = smoothstep( .85, 1., stripe );
+		color.rgb = applyScreen( color.rgb, .05 * vec3( stripe ) );
+	}
 
 	float z = clamp( gl_FragCoord.z, 0., 1. );
-	//color.rgb = mix( color.rgb, vec3( z ), .25 );
 
-	color.r = applySoftLightToChannel( color.r, z );
-	color.g = applySoftLightToChannel( color.g, z );
-	color.b = applySoftLightToChannel( color.b, z );
+	if( useDepthAsSSS == 1. ) {color.rgb = blendOverlay( color.rgb, vec3( z ) ); }
+	if( useShadow == 1. ) { color.rgb = blendOverlay( color.rgb, vec3( shadow ), .1 ); }
+	if( useOcclusion == 1. ) { color.rgb = blendOverlay( color.rgb, vec3( occlusion ), 1. ); }
 
-	color.rgb = vec3( z );
+	//color.rgb = vec3( z );
 	//color.rgb = vec3( shadow );
 	gl_FragColor = color;
 }
@@ -282,6 +318,7 @@ var shadowCamera, shadowBuffer;
 var helper;
 
 var container = document.getElementById( 'container' );
+var dmin = 10000;
 
 function pointsOnSphere(n) {
 
@@ -293,15 +330,26 @@ function pointsOnSphere(n) {
     var z;
     var r;
     var phi;
+    dmin = 10000;
+    var prev = new THREE.Vector3();
+    var cur = new THREE.Vector3();
 
     for (var k = 0; k < n; k++){
-        y = k * off - 1 + (off /2);
-        r = Math.sqrt(1 - y * y);
+        cur.y = k * off - 1 + (off /2);
+        r = Math.sqrt(1 - cur.y * cur.y);
         phi = k * inc;
-        x = Math.cos(phi) * r;
-        z = Math.sin(phi) * r;
+        cur.x = Math.cos(phi) * r;
+        cur.z = Math.sin(phi) * r;
 
-        upts.push(new THREE.Vector3(x, y, z));
+        var dist = cur.distanceTo( prev );
+        if( dist < dmin ) dmin = dist;
+
+        prev.copy( cur );
+
+        var f =new THREE.Vector4();
+        f.x = cur.x; f.y = cur.y; f.z = cur.z;
+        f.w = noise.simplex3( f.x, f.y, f.z );
+        upts.push( f );
     }
 
     return upts;
@@ -309,22 +357,21 @@ function pointsOnSphere(n) {
 
 var sphere;
 var points = [];
+var size = isMobile.any?128:512;
 
 function initScene() {
 
 	var loader = new THREE.TextureLoader();
 
-	for( var j = 0; j < 200; j++ ){
-		points.push( new THREE.Vector3() );
+	for( var j = 0; j < 100; j++ ){
+		points.push( new THREE.Vector4() );
 	}
 
 	var vs = document.getElementById('spike-vs').textContent;
 
-	var size = 512;
-
 	var sphereMaterial = new THREE.RawShaderMaterial( {
 		uniforms: {
-			points: { type: 'v3v', value: points },
+			points: { type: 'v4v', value: points },
 			numPoints: { type: 'f', value: 0 },
 			shadow: { type: 'f', value: 0 },
 			depthTexture: { type: 't', value: shadowBuffer },
@@ -332,17 +379,22 @@ function initScene() {
 			shadowV: { type: 'm4', value: new THREE.Matrix4() },
 			shadowP: { type: 'm4', value: new THREE.Matrix4() },
 			resolution: { type: 'v2', value: new THREE.Vector2( size, size ) },
-			maxd: { type: 'f' ,value: .5 },
-			distortion: { type: 'f' ,value: .5 },
-			smoothness: { type: 'f' ,value: 0 },
-			blend: { type: 'f', value : 0 }
+			maxd: { type: 'f' ,value: .29 },
+			distortion: { type: 'f' ,value: .88 },
+			smoothness: { type: 'f' ,value: .5 },
+			mode: { type: 'f', value : 0 },
+			bulge: { type: 'f', value : 0 },
+			useShadow: { type: 'f', value : 1 },
+			useOcclusion: { type: 'f', value : 1 },
+			useStripes: { type: 'f', value : 0 },
+			useDepthAsSSS: { type: 'f', value : 0 },
 		},
 		vertexShader: document.getElementById('spike-vs').textContent,
 		fragmentShader: document.getElementById('spike-fs').textContent,
 	} );
 
 	sphere = new THREE.Mesh(
-		new THREE.IcosahedronGeometry( 1, 5 ),
+		new THREE.IcosahedronGeometry( 1, isMobile.any?4:5 ),
 		sphereMaterial
 	);
 	scene.add( sphere );
@@ -374,6 +426,21 @@ function createRenderTarget() {
 
 }
 
+var Params = function() {
+	this.points = 50;
+	this.force = .5;
+	this.distance = .5;
+	this.mode = 0;
+	this.bulge = false;
+
+	this.shadow = true;
+	this.occlusion = true;
+	this.sss = false;
+	this.stripes = false;
+
+};
+var params = new Params();
+
 function init() {
 
 	addCommonUI();
@@ -390,22 +457,22 @@ function init() {
 
 	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
 	renderer.setPixelRatio( window.devicePixelRatio );
-	renderer.setClearColor( 0x261b1f, 1 );
+	renderer.setClearColor( 0x202020, 1 );
 	container.appendChild( renderer.domElement );
 
-	container.addEventListener( 'click', random );
+	document.body.addEventListener( 'keydown', random );
 
 	helper = new FBOHelper( renderer );
+	helper.show( false );
 
 	controls = new THREE.OrbitControls( camera, renderer.domElement );
-	controls.noZoom = true;
+	controls.enableZoom = false;
 
 	var s = 2;
 	shadowCamera = new THREE.OrthographicCamera( -s, s, s, -s, 2, 10 );
 	shadowCamera.position.set( 2.4, 4, 0 );
 	shadowCamera.lookAt( scene.position );
 
-	var size = 512;
 	shadowBuffer = createRenderTarget();
 	shadowBuffer.setSize( size, size );
 
@@ -415,6 +482,24 @@ function init() {
 	onWindowResized();
 
 	window.addEventListener( 'resize', onWindowResized );
+
+	var gui = new dat.GUI();
+	var f1 = gui.addFolder('Params');
+	f1.add(params, 'points', 0, 100 ).listen().onChange( function() { addPoints( Math.round( params.points ) )});
+	f1.add(params, 'distance', 0, 1 ).listen().onChange( function() { sphere.material.uniforms.maxd.value = params.distance; });
+	f1.add(params, 'force', -.5, 1 ).listen().onChange( function() { sphere.material.uniforms.distortion.value = params.force; })
+	f1.add(params, 'mode', 0, 4 ).listen().onChange( function() { params.mode = Math.round( params.mode ); sphere.material.uniforms.mode.value = params.mode; })
+	f1.add(params, 'bulge').listen().onChange( function() { sphere.material.uniforms.bulge.value = params.bulge?1.:0. })
+
+	var f2 = gui.addFolder('Render');
+	f2.add(params, 'shadow').listen().onChange( function(){ sphere.material.uniforms.useShadow.value = params.shadow?1:0})
+	f2.add(params, 'occlusion').listen().onChange( function(){ sphere.material.uniforms.useOcclusion.value = params.occlusion?1:0})
+	f2.add(params, 'sss').listen().onChange( function(){ sphere.material.uniforms.useDepthAsSSS.value = params.sss?1:0})
+	f2.add(params, 'stripes').listen().onChange( function(){ sphere.material.uniforms.useStripes.value = params.stripes?1:0})
+
+	f1.open();
+	f2.open();
+	gui.close();
 
 	animate();
 
@@ -437,11 +522,17 @@ var tmpVector = new THREE.Vector3();
 
 function random() {
 
-	var n = Maf.randomInRange( 3, 100 );
+	return;
+	var n = Math.round( Maf.randomInRange( 3, 100 ) );
 	addPoints( n );
-	var d = 1. - .5 * n / 100;
+	var d = .75 * dmin;
+	console.log( n, d );
 
-	if( Math.random() > .5 ){
+	sphere.material.uniforms.distortion.value = Maf.randomInRange( -1., 1. );
+	if( sphere.material.uniforms.distortion.value < 0 ) d *= .5;
+	sphere.material.uniforms.maxd.value = d;// * Maf.randomInRange( 0, 1 );
+
+	/*if( Math.random() > .5 ){
 		sphere.material.uniforms.distortion.value = Maf.randomInRange( -.3, -.4 );
 		sphere.material.uniforms.maxd.value = d * Maf.randomInRange( .1, .3 );
 		sphere.material.uniforms.smoothness.value = .5;
@@ -449,7 +540,7 @@ function random() {
 		sphere.material.uniforms.distortion.value = Maf.randomInRange( .1, .75 );
 		sphere.material.uniforms.maxd.value = d * Maf.randomInRange( .3, .6 );
 		sphere.material.uniforms.smoothness.value = .5
-	}
+	}*/
 
 }
 
@@ -459,18 +550,10 @@ function animate() {
 
 	controls.update();
 
-	var t = .005 * performance.now();
-	/*shadowCamera.position.x = 2 * Math.cos( t );
-	shadowCamera.lookAt( sphere.position );*/
-
-	//sphere.material.uniforms.distortion.value = .2 + .5 * Math.cos( 2 * t );
-	//sphere.material.uniforms.maxd.value = .4 + .2* Math.cos( 1.1 * t );
-	//sphere.material.uniforms.smoothness.value = sphere.material.uniforms.maxd.value * .5 + .4 * Math.cos( .9 * t );
-
 	sphere.material.uniforms.depthTexture.value = null;
 	sphere.material.uniforms.shadow.value = true;
 	renderer.render( scene, shadowCamera, shadowBuffer );
-	sphere.material.uniforms.depthTexture.value = shadowBuffer;
+	sphere.material.uniforms.depthTexture.value = shadowBuffer.texture;
 	sphere.material.uniforms.shadow.value = false;
 
 	tmpVector.copy( scene.position );
