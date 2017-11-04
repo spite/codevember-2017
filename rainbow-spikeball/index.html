@@ -427,6 +427,9 @@ function createRenderTarget() {
 }
 
 var Params = function() {
+
+	this.animate = true;
+
 	this.points = 50;
 	this.force = .5;
 	this.distance = .5;
@@ -485,9 +488,10 @@ function init() {
 
 	var gui = new dat.GUI();
 	var f1 = gui.addFolder('Params');
+	f1.add(params, 'animate').listen();
 	f1.add(params, 'points', 0, 100 ).listen().onChange( function() { addPoints( Math.round( params.points ) )});
-	f1.add(params, 'distance', 0, 1 ).listen().onChange( function() { sphere.material.uniforms.maxd.value = params.distance; });
 	f1.add(params, 'force', -.5, 1 ).listen().onChange( function() { sphere.material.uniforms.distortion.value = params.force; })
+	f1.add(params, 'distance', 0, 1 ).listen().onChange( function() { sphere.material.uniforms.maxd.value = params.distance; });
 	f1.add(params, 'mode', 0, 4 ).listen().onChange( function() { params.mode = Math.round( params.mode ); sphere.material.uniforms.mode.value = params.mode; })
 	f1.add(params, 'bulge').listen().onChange( function() { sphere.material.uniforms.bulge.value = params.bulge?1.:0. })
 
@@ -549,6 +553,11 @@ function animate() {
 	requestAnimationFrame( animate );
 
 	controls.update();
+
+	var t = .002 * performance.now();
+	if( params.animate ) {
+		sphere.material.uniforms.distortion.value = params.force * ( .5 + .5 * Math.cos( t ) );
+	}
 
 	sphere.material.uniforms.depthTexture.value = null;
 	sphere.material.uniforms.shadow.value = true;
