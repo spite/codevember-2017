@@ -29,7 +29,8 @@
 		<script src="../js/Common.js"></script>
 		<script src="../js/three.js"></script>
 		<script src="../js/OrbitControls.js"></script>
-		<script src="../js/MeshCustomMaterial.js"></script>
+		<script src="../js/THREE.FBOHelper.js"></script>
+		<script src="../js/Maf.js"></script>
 
 <script type="x-shader/x-vertex" id="spike-vs" >
 precision highp float;
@@ -38,8 +39,9 @@ attribute vec3 position;
 attribute vec2 uv;
 attribute vec3 normal;
 
-#define POINTS 20
+#define POINTS 200
 
+uniform float numPoints;
 uniform mat4 modelMatrix;
 uniform mat4 modelViewMatrix;
 uniform mat4 projectionMatrix;
@@ -47,10 +49,32 @@ uniform mat3 normalMatrix;
 uniform vec3 points[ POINTS ];
 
 varying vec2 vUv;
+varying vec3 vWorldPosition;
+
+uniform mat4 shadowMVP;
+uniform mat4 shadowV;
+uniform mat4 shadowP;
+
+uniform sampler2D depthTexture;
+
+uniform float maxd;
+uniform float distortion;
+uniform float smoothness;
+uniform float blend;
+
+varying vec4 vShadowCoord;
 varying vec3 vPosition;
 varying vec3 vNormal;
-varying vec3 vEye;
-varying vec3 vWorldPosition;
+varying float occluded;
+varying float bias;
+varying float vVisiblity;
+
+const mat4 biasMatrix = mat4(
+	0.5, 0.0, 0.0, 0.0,
+	0.0, 0.5, 0.0, 0.0,
+	0.0, 0.0, 0.5, 0.0,
+	0.5, 0.5, 0.5, 1.0
+);
 
 float smootherstep(float a, float b, float r) {
 	r = clamp(r, 0.0, 1.0);
@@ -60,12 +84,14 @@ float smootherstep(float a, float b, float r) {
 
 vec3 calc( vec3 p, float mind, vec3 n ) {
 
-	float maxd = .6;
 	if( mind < maxd ) {
+
 		mind = 1. - clamp( mind, 0., maxd ) / maxd;
-		mind = smootherstep( 0., 1., mind );
-		//p += normalize( p ) * mind * .5;
-		p += n * mind * .5;
+
+		mind = smootherstep( .5 - smoothness, .5 + smoothness, mind );
+		//mind = clamp( mind, .5 - smoothness, .5 + smoothness );
+
+		p = p + normalize( mix( normalize( p) , normalize( n ), blend ) ) * mind * distortion;
 	} else {
 		p = normalize( p );
 	}
@@ -78,10 +104,12 @@ vec3 d( vec3 p ) {
 	float mind = 1000.;
 	vec3 n;
 	for( int i = 0; i < POINTS; i++ ) {
-		float d = length( points[ i ] - p );
-		if( d < mind ) {
-			mind = d;
-			n = points[ i ];
+		if( i < int( numPoints ) ) {
+			float d = length( points[ i ] - p );
+			if( d < mind ) {
+				mind = d;
+				n = points[ i ];
+			}
 		}
 	}
 
@@ -97,14 +125,19 @@ void main() {
 
 	vec3 pos = d( position );
 
-	/*vec3 e = normalize( vec3( modelViewMatrix * vec4( pos, 1.0 ) ) );
-	vNormal = normalMatrix * normal;
-	vEye = vec3( modelViewMatrix * vec4( pos, 1. ) );*/
-
 	gl_Position = projectionMatrix * modelViewMatrix * vec4( pos, 1. );
 
 	vPosition = pos;
 	vWorldPosition = ( modelViewMatrix * vec4( pos, 1. ) ).xyz;
+
+	vec4 p = vec4( pos, 1. );
+	vShadowCoord = biasMatrix * shadowP * modelMatrix * shadowV * p;
+	gl_Position = projectionMatrix * modelViewMatrix * p;
+    bias = .01;
+
+    /*vec3 shadowCoord = vShadowCoord.xyz / vShadowCoord.w;
+    float depth = texture2D( depthTexture, shadowCoord.xy ).r;
+	vVisiblity  = ( shadowCoord.z - depth > bias ) ? 0. : 1.;*/
 
 }
 </script>
@@ -115,32 +148,127 @@ void main() {
 precision highp float;
 
 uniform sampler2D tMatCap;
+uniform float shadow;
 
 varying vec2 vUv;
 varying vec3 vWorldPosition;
-varying vec3 vPosition;
+
+uniform sampler2D depthTexture;
+uniform vec2 resolution;
+uniform sampler2D projector;
+
+varying vec4 vShadowCoord;
 varying vec3 vNormal;
-varying vec3 vEye;
+varying vec3 vPosition;
+varying float occluded;
+varying float bias;
+varying float vVisiblity;
+
+float sampleVisibility( vec3 coord ) {
+	float depth = texture2D( depthTexture, coord.xy ).r;
+	float visibility  = ( coord.z - depth > bias ) ? 0. : 1.;
+	return visibility;
+}
+
+float applyOverlayToChannel( float base, float blend ) {
+	return (base < 0.5 ? (2.0 * base * blend) : (1.0 - 2.0 * (1.0 - base) * (1.0 - blend)));
+}
+
+
+float applySoftLightToChannel( float base, float blend ) {
+	return ((blend < 0.5) ? (2.0 * base * blend + base * base * (1.0 - 2.0 * blend)) : (sqrt(base) * (2.0 * blend - 1.0) + 2.0 * base * (1.0 - blend)));
+}
+
+vec3 applyScreen( vec3 base, vec3 blend ) {
+	return (1.0 - ((1.0 - base) * (1.0 - blend)));
+}
+
+float rand(vec2 co){
+    return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+}
 
 void main() {
 
-	/*vec3 X = dFdx( vPosition );
-	vec3 Y = dFdy( vPosition );
-	vec3 normal = normalize( cross( X, Y ) );
+	if( shadow == 1. ) {
+		gl_FragColor = vec4( vec3( gl_FragCoord.z ), 1. );
+		return;
+	}
 
-	vec3 r = reflect( normalize( vEye ), normalize( normal ) );
-	float m = 2. * sqrt( pow( r.x, 2. ) + pow( r.y, 2. ) + pow( r.z + 1., 2. ) );
-	vec2 vN = r.xy / m + .5;
+	const int NUM_TAPS = 12;
+	float max_siz = 42.0;// * (0.5+0.5*sin(iGlobalTime));
 
-	vec3 base = texture2D( tMatCap, vN ).rgb;
-	gl_FragColor = vec4( base, 1. );*/
+	vec2 fTaps_Poisson[NUM_TAPS];
+	fTaps_Poisson[0]  = vec2(-.326,-.406);
+	fTaps_Poisson[1]  = vec2(-.840,-.074);
+	fTaps_Poisson[2]  = vec2(-.696, .457);
+	fTaps_Poisson[3]  = vec2(-.203, .621);
+	fTaps_Poisson[4]  = vec2( .962,-.195);
+	fTaps_Poisson[5]  = vec2( .473,-.480);
+	fTaps_Poisson[6]  = vec2( .519, .767);
+	fTaps_Poisson[7]  = vec2( .185,-.893);
+	fTaps_Poisson[8]  = vec2( .507, .064);
+	fTaps_Poisson[9]  = vec2( .896, .412);
+	fTaps_Poisson[10] = vec2(-.322,-.933);
+	fTaps_Poisson[11] = vec2(-.792,-.598);
 
-//	gl_FragColor = vec4( .5 + .5 * normal, 1. );
-	gl_FragColor = vec4( .5 + .5 * vNormal, 1. );
-	float stripe = .5 + .5 * cos( length( vPosition ) );
-	stripe = length( vPosition );
-	gl_FragColor.rgb *= vec3( stripe );
+	float shadow = 0.;
+	vec3 shadowCoord = vShadowCoord.xyz / vShadowCoord.w;
 
+	/*vec2 poissonDisk[ 4 ];
+	poissonDisk[ 0 ] = vec2( -0.94201624, -0.39906216 );
+	poissonDisk[ 1 ] = vec2( 0.94558609, -0.76890725 );
+	poissonDisk[ 2 ] = vec2( -0.094184101, -0.92938870 );
+	poissonDisk[ 3 ] = vec2( 0.34495938, 0.29387760 );
+
+	if( shadowCoord.x >= 0. || shadowCoord.x <= 1. || shadowCoord.y >= 0. || shadowCoord.y <= 1. ) {
+		float spread = 500.;
+		shadow += sampleVisibility( shadowCoord + vec3( poissonDisk[ 0 ], 0. ) / spread );
+		shadow += sampleVisibility( shadowCoord + vec3( poissonDisk[ 1 ], 0. ) / spread );
+		shadow += sampleVisibility( shadowCoord + vec3( poissonDisk[ 2 ], 0. ) / spread );
+		shadow += sampleVisibility( shadowCoord + vec3( poissonDisk[ 3 ], 0. ) / spread );
+		shadow /= 4.;
+	}*/
+
+	for (int i=0; i < NUM_TAPS; i++)
+	{
+		vec2 ofs = fTaps_Poisson[i] / 100.;
+		shadow += sampleVisibility( shadowCoord + vec3( ofs, 0. ) );
+	}
+	shadow /= float( NUM_TAPS );
+
+	//shadow += vVisiblity;
+	//shadow /= 2.;
+
+	float stripe = .5 + .5 * cos( 100. * length( vPosition ) );
+	stripe = smoothstep( .85, 1., stripe );
+
+	float occlusion = .3 * length( vPosition );
+	shadow *= occlusion;
+	shadow = .5 * smoothstep( 0., .4, shadow );
+
+	vec4 color = vec4( .5 + .5 * vNormal, 1. );
+	//color.rgb = applyScreen( color.rgb, .1 * vec3( stripe ) );
+
+/*	color.r = applyOverlayToChannel( color.r, shadow );
+	color.g = applyOverlayToChannel( color.g, shadow );
+	color.b = applyOverlayToChannel( color.b, shadow );
+*/
+	//color.rgb *= shadow;
+
+	/*color.r = applySoftLightToChannel( color.r, shadow );
+	color.g = applySoftLightToChannel( color.g, shadow );
+	color.b = applySoftLightToChannel( color.b, shadow );*/
+
+	float z = clamp( gl_FragCoord.z, 0., 1. );
+	//color.rgb = mix( color.rgb, vec3( z ), .25 );
+
+	color.r = applySoftLightToChannel( color.r, z );
+	color.g = applySoftLightToChannel( color.g, z );
+	color.b = applySoftLightToChannel( color.b, z );
+
+	color.rgb = vec3( z );
+	//color.rgb = vec3( shadow );
+	gl_FragColor = color;
 }
 </script>
 
@@ -148,8 +276,8 @@ void main() {
 
 'use strict';
 
-var container, renderer, camera, controls, scene;
-var mesh;
+var container, renderer, camera, controls, scene, mesh;
+var shadowCamera, shadowBuffer;
 
 var helper;
 
@@ -179,48 +307,70 @@ function pointsOnSphere(n) {
     return upts;
 }
 
-function initScene() {
+var sphere;
+var points = [];
 
-	var points = pointsOnSphere( 20 );
+function initScene() {
 
 	var loader = new THREE.TextureLoader();
 
+	for( var j = 0; j < 200; j++ ){
+		points.push( new THREE.Vector3() );
+	}
+
 	var vs = document.getElementById('spike-vs').textContent;
+
+	var size = 512;
 
 	var sphereMaterial = new THREE.RawShaderMaterial( {
 		uniforms: {
-			tMatCap: { type: 't', value: loader.load( '../assets/matcap3.jpg' ) },
-			points: { type: 'v3v', value: points }
+			points: { type: 'v3v', value: points },
+			numPoints: { type: 'f', value: 0 },
+			shadow: { type: 'f', value: 0 },
+			depthTexture: { type: 't', value: shadowBuffer },
+			shadowMVP: { type: 'm4', value: new THREE.Matrix4() },
+			shadowV: { type: 'm4', value: new THREE.Matrix4() },
+			shadowP: { type: 'm4', value: new THREE.Matrix4() },
+			resolution: { type: 'v2', value: new THREE.Vector2( size, size ) },
+			maxd: { type: 'f' ,value: .5 },
+			distortion: { type: 'f' ,value: .5 },
+			smoothness: { type: 'f' ,value: 0 },
+			blend: { type: 'f', value : 0 }
 		},
 		vertexShader: document.getElementById('spike-vs').textContent,
 		fragmentShader: document.getElementById('spike-fs').textContent,
 	} );
 
-	var sphere = new THREE.Mesh(
+	sphere = new THREE.Mesh(
 		new THREE.IcosahedronGeometry( 1, 5 ),
 		sphereMaterial
 	);
 	scene.add( sphere );
 	sphere.receiveShadow = sphere.castShadow = true;
 
-	var light = new THREE.DirectionalLight( 0xffffff, 1 );
-	light.position.set( 0, 10, 0 );
-	light.castShadow = true;
-	scene.add( light );
+	addPoints( 50 );
 
-	var r = 7;
-	light.shadow.mapSize.set( 1024, 1024 );
-	light.shadow.camera.left = -r;
-	light.shadow.camera.right = r;
-	light.shadow.camera.top = r;
-	light.shadow.camera.bottom = -r;
-	light.shadow.camera.updateProjectionMatrix();
+}
 
-	var geometry = new THREE.Geometry();
-	geometry.vertices = points;
-	var material = new THREE.PointsMaterial( { size: .01 } );
-	var particles = new THREE.Points( geometry, material );
-	scene.add( particles );
+function addPoints( n ) {
+
+	var points = pointsOnSphere( n );
+	for( var j = 0; j < n; j++ ) {
+		sphere.material.uniforms.points.value[ j ] = points[ j ];
+	}
+	sphere.material.uniforms.numPoints.value = n;
+
+}
+
+function createRenderTarget() {
+
+	return new THREE.WebGLRenderTarget( 1, 1, {
+		wrapS: THREE.ClampToEdgeWrapping,
+		wrapT: THREE.ClampToEdgeWrapping,
+		format: THREE.RGBAFormat,
+		stencilBuffer: false,
+		depthBuffer: true
+	});
 
 }
 
@@ -232,9 +382,9 @@ function init() {
 
 	scene = new THREE.Scene();
 
-	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 2, 8 );
 	camera.target = new THREE.Vector3( 0, 0, 0 );
-	camera.position.set( 0, 0, 2 );
+	camera.position.set( 0, 0, 4 );
 	camera.lookAt( camera.target );
 	scene.add( camera );
 
@@ -243,10 +393,23 @@ function init() {
 	renderer.setClearColor( 0x261b1f, 1 );
 	container.appendChild( renderer.domElement );
 
-	renderer.shadowMap.enabled = true;
-	renderer.shadowMap.type = THREE.PCFShadowMap;
+	container.addEventListener( 'click', random );
+
+	helper = new FBOHelper( renderer );
 
 	controls = new THREE.OrbitControls( camera, renderer.domElement );
+	controls.noZoom = true;
+
+	var s = 2;
+	shadowCamera = new THREE.OrthographicCamera( -s, s, s, -s, 2, 10 );
+	shadowCamera.position.set( 2.4, 4, 0 );
+	shadowCamera.lookAt( scene.position );
+
+	var size = 512;
+	shadowBuffer = createRenderTarget();
+	shadowBuffer.setSize( size, size );
+
+	helper.attach( shadowBuffer, 'shadow' );
 
 	initScene();
 	onWindowResized();
@@ -266,6 +429,28 @@ function onWindowResized( event ) {
 	camera.aspect = w / h;
 	camera.updateProjectionMatrix();
 
+	helper.setSize( w,h );
+}
+
+var tmpMatrix = new THREE.Matrix4();
+var tmpVector = new THREE.Vector3();
+
+function random() {
+
+	var n = Maf.randomInRange( 3, 100 );
+	addPoints( n );
+	var d = 1. - .5 * n / 100;
+
+	if( Math.random() > .5 ){
+		sphere.material.uniforms.distortion.value = Maf.randomInRange( -.3, -.4 );
+		sphere.material.uniforms.maxd.value = d * Maf.randomInRange( .1, .3 );
+		sphere.material.uniforms.smoothness.value = .5;
+	} else {
+		sphere.material.uniforms.distortion.value = Maf.randomInRange( .1, .75 );
+		sphere.material.uniforms.maxd.value = d * Maf.randomInRange( .3, .6 );
+		sphere.material.uniforms.smoothness.value = .5
+	}
+
 }
 
 function animate() {
@@ -274,8 +459,33 @@ function animate() {
 
 	controls.update();
 
+	var t = .005 * performance.now();
+	/*shadowCamera.position.x = 2 * Math.cos( t );
+	shadowCamera.lookAt( sphere.position );*/
+
+	//sphere.material.uniforms.distortion.value = .2 + .5 * Math.cos( 2 * t );
+	//sphere.material.uniforms.maxd.value = .4 + .2* Math.cos( 1.1 * t );
+	//sphere.material.uniforms.smoothness.value = sphere.material.uniforms.maxd.value * .5 + .4 * Math.cos( .9 * t );
+
+	sphere.material.uniforms.depthTexture.value = null;
+	sphere.material.uniforms.shadow.value = true;
+	renderer.render( scene, shadowCamera, shadowBuffer );
+	sphere.material.uniforms.depthTexture.value = shadowBuffer;
+	sphere.material.uniforms.shadow.value = false;
+
+	tmpVector.copy( scene.position );
+	tmpVector.sub( shadowCamera.position );
+	tmpVector.normalize();
+	tmpMatrix.copy( shadowCamera.projectionMatrix );
+	tmpMatrix.multiply( sphere.matrixWorld );
+	tmpMatrix.multiply( shadowCamera.matrixWorldInverse);
+	sphere.material.uniforms.shadowMVP.value.copy( tmpMatrix );
+	sphere.material.uniforms.shadowP.value.copy( shadowCamera.projectionMatrix );
+	sphere.material.uniforms.shadowV.value.copy( shadowCamera.matrixWorldInverse );
+
 	renderer.render( scene, camera );
 
+	helper.update();
 }
 
 window.addEventListener( 'load', init );
