@@ -1,28 +1,47 @@
 <!doctype html>
 <html lang="en">
 	<head>
-		<title>TITLE - Codevember 2017</title>
+		<title>Sound Waves - Codevember 2017</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 
 		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
 		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
 
+		<style>
+		#play{
+	position: absolute;
+	left: 0; right: 0;
+	bottom: 0; top: 0;
+	width: 100%; height: 100%;
+	background-color: black;
+	text-align:center;
+	line-height: 0;
+	padding-top: 50%;
+}
+
+	</style>
 	</head>
 	<body>
 
 		<div id="container"></div>
 		<div id="info" >
-			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
-			<h1>#. TITLE</h1>
-			<p>Lorem ipsum</p>
+			<p><a href="../rainbow-spikeball" >Previous</a> <!--| <a href="../n" >Next</a>--></p>
+			<h1>4. Sound Waves</h1>
+			<p>Frequencies from sound input displayed along a sphere using particles, and some bloom to add glow.</p>
+			<p><a href="#" id="usemic" >Click here to use microphone</a></p>
+			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out.</p>
 			<p id="moreDetails"><b>More details...</b></p>
 		</div>
+		<div id="play" >Click to start</div>
 		<div id="details" class="hidden">
 			<div class="content" >
 				<h1>Details</h1>
-				<p>FFT to Log by Felix Turner</p>
-				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<p>Frequencies from sound input displayed along a sphere using particles, and some bloom to add glow.</p>
+				<p>Music from <a href="https://soundcloud.com/l-i-e-s/lies-26-5-b1-fire-rises-eqd-44" >Antenes-Fire Rises (LIES-026.5)</a>.</p>
+				<p>FFT to Log from <a href="https://www.shadertoy.com/view/ltlyRM" >Linear vs Logarithmic FFT</a>.</p>
+				<p>GLSL blend modes from <a href="https://github.com/jamieowen/glsl-blend" >glsl-blend</a>.</p>
+				<p>GLSL blur from <a href="https://github.com/Jam3/glsl-fast-gaussian-blur" >glsl-fast-gaussian-blur</a>.</p>
 				<a href="#" id="close-details">Close</a>
 			</div>
 		</div>
@@ -35,6 +54,7 @@
 		<script src="../js/Odeo.js"></script>
 		<script src="../js/THREE.FBOHelper.js"></script>
 		<script src="../js/THREE.ShaderTexture.js"></script>
+		<script src="../js/isMobile.min.js"></script>
 
 <script type="x-shader/x-vertex" id="ortho-vs" >
 precision highp float;
@@ -234,7 +254,7 @@ vec3 blendScreen(vec3 base, vec3 blend, float opacity) {
 void main() {
 	vec3 a = texture2D( base, vUv ).rgb;
 	vec3 b = texture2D( blur, vUv, 2. ).rgb + texture2D( blur, vUv, 4. ).rgb + texture2D( blur, vUv, 8. ).rgb;
-	vec3 c = a + b;//blendScreen( a, b, 1. );
+	vec3 c = blendScreen( a, b, 1. );
 	gl_FragColor = vec4( c, 1. );
 }
 </script>
@@ -263,10 +283,28 @@ var baseFBO;
 var odeo = new Odeo( {
 	soundCloudId: 'b1275b704badf79d972d51aa4b92ea15'
 } );
-//odeo.playSoundCloud('https://soundcloud.com/mrsuicidesheep/dawn-pt2-an-ambient-mix')
-//odeo.playSoundCloud('https://soundcloud.com/l-i-e-s/lies-26-5-b1-fire-rises-eqd-44')
-//odeo.playSoundCloud('https://soundcloud.com/officialtrapbangers/i-dont-need-you-underwater-remix')
-odeo.useMicrophone();
+
+var playDiv = document.getElementById( 'play' );
+
+if( isMobile.any ) {
+
+	playDiv.addEventListener( 'click', function() {
+		odeo.playSoundCloud('https://soundcloud.com/l-i-e-s/lies-26-5-b1-fire-rises-eqd-44')
+		playDiv.style.display = 'none';
+	} )
+
+} else {
+		playDiv.style.display = 'none';
+	//odeo.playSoundCloud('https://soundcloud.com/mrsuicidesheep/dawn-pt2-an-ambient-mix')
+	odeo.playSoundCloud('https://soundcloud.com/l-i-e-s/lies-26-5-b1-fire-rises-eqd-44')
+	//odeo.playSoundCloud('https://soundcloud.com/officialtrapbangers/i-dont-need-you-underwater-remix')
+	//odeo.useMicrophone();
+}
+
+document.getElementById( 'usemic' ).addEventListener( 'click', function() {
+	odeo.stopSoundCloud();
+	odeo.useMicrophone();
+});
 
 function pointsOnSphere(n) {
 
@@ -580,13 +618,6 @@ function onWindowResized( event ) {
 	hBlurTexture.setSize( bw, bh );
 	vBlurTexture.setSize( bw, bh );
 	blurShader.uniforms.resolution.value.set( bw, bh );
-	/*orthoQuad.scale.set( w, h, 1 );
-
-	orthoCamera.left   = - w / 2;
-	orthoCamera.right  =   w / 2;
-	orthoCamera.top    =   h / 2;
-	orthoCamera.bottom = - h / 2;
-	orthoCamera.updateProjectionMatrix();*/
 
 	helper.setSize( w,h );
 
