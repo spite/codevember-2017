@@ -31,6 +31,65 @@
 		<script src="../js/OrbitControls.js"></script>
 		<script src="../js/EquirectangularToCubemap.js"></script>
 		<script src="../js/THREE.FBOHelper.js"></script>
+		<script src="../js/THREE.ShaderTexture.js"></script>
+		<script src="../js/THREE.PingPongTexture.js"></script>
+
+<script type="x-shader/x-vertex" id="ortho-vs" >
+precision highp float;
+attribute vec3 position;
+attribute vec2 uv;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+varying vec2 vUv;
+void main() {
+	vUv = uv;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1. );
+}
+</script>
+
+<script id="combine-fs" type="x-shader/x-fragment">
+precision highp float;
+
+varying vec2 vUv;
+uniform vec2 dimensions;
+uniform sampler2D source;
+uniform sampler2D shadow;
+uniform float samples;
+
+float blendSoftLight(float base, float blend) {
+	return (blend<0.5)?(2.0*base*blend+base*base*(1.0-2.0*blend)):(sqrt(base)*(2.0*blend-1.0)+2.0*base*(1.0-blend));
+}
+
+vec3 blendSoftLight(vec3 base, vec3 blend) {
+	return vec3(blendSoftLight(base.r,blend.r),blendSoftLight(base.g,blend.g),blendSoftLight(base.b,blend.b));
+}
+
+vec3 blendSoftLight(vec3 base, vec3 blend, float opacity) {
+	return (blendSoftLight(base, blend) * opacity + base * (1.0 - opacity));
+}
+
+void main() {
+	vec4 b = texture2D( source, vUv);
+	vec4 s = texture2D( shadow, vUv);
+	gl_FragColor = mix( b, vec4( blendSoftLight( s.rgb, b.rgb ), 1. ), samples / 300. );
+}
+</script>
+
+<script id="shadow-fs" type="x-shader/x-fragment">
+precision highp float;
+
+varying vec2 vUv;
+uniform sampler2D source;
+uniform sampler2D shadow;
+uniform float reset;
+
+void main() {
+	vec4 b = texture2D( shadow, vUv);
+	vec4 s = texture2D( source, vUv) * ( 1. - reset );
+	vec4 c = .99 * s + .01 * b;
+	gl_FragColor = c;
+}
+</script>
 
 <script>
 
@@ -95,13 +154,40 @@ function createSection( thetaStart, thetaLength ) {
 			var k = ptr + i * s;
 			var face = new THREE.Face3( k + j, k + ( j + 1 ) % s, k + j + s );
 			res.faces.push( face );
-			var face = new THREE.Face3( k + ( j + 1 ) % s + s, k + j + s, k + ( j + 1 ) % s,  );
+			var face = new THREE.Face3( k + ( j + 1 ) % s + s, k + j + s, k + ( j + 1 ) % s  );
 			res.faces.push( face );
 		}
 	}
 
 	// connections
 	k = ( segments - 1 ) * s;
+	var geo2 = new THREE.Geometry();
+	var geo3 = new THREE.Geometry();
+	for( var j = 0; j < s; j++ ) {
+		geo2.vertices.push( res.vertices[ j ] );
+	}
+	for( var j = 0; j < s; j++ ) {
+		geo2.vertices.push( res.vertices[ j + ptr ] );
+	}
+	for( var j = 0; j < s; j++ ) {
+		geo3.vertices.push( res.vertices[ k + j ] );
+	}
+	for( var j = 0; j < s; j++ ) {
+		geo3.vertices.push( res.vertices[ k + j + ptr ] );
+	}
+	var k = 2 * s;
+	for( var j = 0; j < s; j++ ) {
+		var face = new THREE.Face3( j, ( j + 1 ) % s, j + s );
+		geo2.faces.push( face );
+		var face = new THREE.Face3( ( j + 1 ) % s + s, j + s, ( j + 1 ) % s );
+		geo2.faces.push( face );
+		var face = new THREE.Face3( j + s, ( j + 1 ) % s, j );
+		geo3.faces.push( face );
+		var face = new THREE.Face3( ( j + 1 ) % s, j + s, ( j + 1 ) % s + s );
+		geo3.faces.push( face );
+	}
+
+	/*k = ( segments - 1 ) * s;
 	for( var j = 0; j < s; j++ ) {
 		var face = new THREE.Face3( j, ( j + 1 ) % s,  ptr + j );
 		res.faces.push( face );
@@ -111,14 +197,25 @@ function createSection( thetaStart, thetaLength ) {
 		res.faces.push( face );
 		var face = new THREE.Face3( k + ( j + 1 ) % s, k + ptr + j, k + ptr + ( j + 1 ) % s );
 		res.faces.push( face );
-	}
+	}*/
 
 	res.computeVertexNormals();
 	res.computeFaceNormals();
 
+	geo2.computeVertexNormals();
+	geo2.computeFaceNormals();
+
+	geo3.computeVertexNormals();
+	geo3.computeFaceNormals();
+
+	res.merge( geo2 );
+	res.merge( geo3 );
 	return res;
 }
 
+var light1, light2;
+var mesh, material;
+var shadowMaterial = new THREE.MeshPhongMaterial( {})
 function createSphere() {
 
 	var loader = new THREE.TextureLoader();
@@ -126,38 +223,38 @@ function createSphere() {
 
 		var equiToCube = new EquirectangularToCubemap( renderer );
 
-		//var m = new THREE.MeshNormalMaterial( { size: .01, wireframe: false, side: THREE.FrontSide, shading: THREE.FlatShading }) ;
-		var m = new THREE.MeshStandardMaterial( { envMap: equiToCube.convert( res, 1024 ), metalness: 5 } )
-		var m = new THREE.MeshStandardMaterial( { shading: color: 0x576878,envMap: equiToCube.convert( res, 1024 ) } )
+		var m = new THREE.MeshBasicMaterial( { size: .01, wireframe: false, side: THREE.FrontSide, shading: THREE.FlatShading }) ;
+		//var m2 = new THREE.MeshStandardMaterial( { envMap: equiToCube.convert( res, 1024 ), metalness: 5 } )
+		material = new THREE.MeshStandardMaterial( { color: 0xffffff,envMap: equiToCube.convert( res, 1024 ), metalness: .25, roughness: .5 } )
+		//var m2 = new THREE.MeshPhongMaterial( {  }) ;
 		var s = 0;
-
-		var group = new THREE.Group();
-
+		var mat = new THREE.Matrix4();
+		var geo = new THREE.Geometry();
 		for( var j = 0; j < Math.PI; j += 0 ) {
-			var step = .01 + Math.random() * .2;
-			var c = createSection( j, step );
-			console.log( j, step );
-			var mesh = new THREE.Mesh( c, m );
-			mesh.position.x += .2 * ( .5 - Math.random( ))
-			group.add( mesh );
-			mesh.castShadow = mesh.receiveShadow = true;
+			var step = .1;//.1 + Math.random() * .2;
+			var c = createSection( j, .2 );
+			var phi = Math.random() * 2 * Math.PI;
+			var x = r * Math.sin( j ) * Math.cos( phi );
+			var y = r * Math.sin( j ) * Math.sin( phi );
+			var z = r * Math.cos( j );
+			var dir = new THREE.Vector3( x,y,z);
+			dir.normalize().multiplyScalar(.1);
+			mat.identity();
+			mat.makeTranslation( dir.x, dir.y, dir.z );
+			geo.merge( c, mat );
+
 			j += step;
 		}
 
-		scene.add( group );
-		group.rotation.z = .2;
+		mesh = new THREE.Mesh( geo, material );
+		scene.add( mesh );
 
 	} );
 
-	var light1 = new THREE.DirectionalLight( 0xffffff, 2 );
-	light1.position.set( 0, 10, 0 );
+	light1 = new THREE.DirectionalLight( 0xffffff, .5 );
+	light1.position.set( 1, 10, 1 );
 	light1.castShadow = true;
 	scene.add( light1 );
-
-	var light2 = new THREE.DirectionalLight( 0xffffff, .5 );
-	light2.position.set( 4, 10, -4 );
-	light2.castShadow = true;
-	//scene.add( light2 );
 
 	var r = 2;
 	light1.shadow.mapSize.set( 1024, 1024 );
@@ -167,21 +264,12 @@ function createSphere() {
 	light1.shadow.camera.bottom = -r;
 	light1.shadow.camera.updateProjectionMatrix();
 
-	var r = 2;
-	light2.shadow.mapSize.set( 1024, 1024 );
-	light2.shadow.camera.left = -r;
-	light2.shadow.camera.right = r;
-	light2.shadow.camera.top = r;
-	light2.shadow.camera.bottom = -r;
-	light2.shadow.camera.updateProjectionMatrix();
-
 	renderer.render( scene, camera );
 
 	helper.attach( light1.shadow.map, 'shadow' );
-	//helper.attach( light2.shadow.map, 'shadow' );
 
-	var light = new THREE.HemisphereLight( 0xf8f9f4, 0x6e86a0, 1. );
-	scene.add( light );
+	light2 = new THREE.HemisphereLight( 0xf8f9f4, 0x6e86a0, .5 );
+	scene.add( light2 );
 	/*var c = createSection( .5, .3 );
 	var mesh = new THREE.Mesh( c, m2 );
 	scene.add( mesh );
@@ -198,27 +286,61 @@ function createSphere() {
 	var mesh = new THREE.Mesh( c, m2 );
 	scene.add( mesh );*/
 
-	return;
-
-	for( var j = 0 ; j < Math.PI; j += .5 ){
-
-		var c = createRing( j, .3 );
-		console.log( j );
-		var mesh = new THREE.Mesh( c, new THREE.MeshNormalMaterial( { wireframe: !false, side: THREE.DoubleSide }) );
-		scene.add( mesh );
-
-	}
 
 }
 
-var a;
+function createRenderTarget() {
+
+	return new THREE.WebGLRenderTarget( 1, 1, {
+		wrapS: THREE.ClampToEdgeWrapping,
+		wrapT: THREE.ClampToEdgeWrapping,
+		format: THREE.RGBFormat,
+		stencilBuffer: false,
+		depthBuffer: true
+	});
+
+}
+
+var baseFBO;
+var tmpShadowFBO;
+var combineShader, shadowShader;
+var combineTexture, shadowTexture;
 
 function initScene() {
 
 	createSphere();
 
-	a = new THREE.Mesh( new THREE.IcosahedronBufferGeometry(.5, 4 ), new THREE.MeshNormalMaterial( {  } ) );
-	//scene.add( a );
+	baseFBO = createRenderTarget();
+	tmpShadowFBO = createRenderTarget();
+
+	helper.attach( baseFBO, 'base pass' );
+	helper.attach( tmpShadowFBO, 'shadow pass' );
+
+	shadowShader = new THREE.RawShaderMaterial( {
+		uniforms: {
+			source: { type: 't', value: tmpShadowFBO.texture },
+			shadow: { type: 't', value: tmpShadowFBO.texture },
+			reset: { type: 'f', value: 0 },
+		},
+		vertexShader: document.getElementById('ortho-vs').textContent,
+		fragmentShader: document.getElementById('shadow-fs').textContent,
+	} );
+
+	shadowTexture = new PingPongTexture( renderer, shadowShader, 1, 1 );
+	helper.attach( shadowTexture.front, 'acum' );
+
+	combineShader = new THREE.RawShaderMaterial( {
+		uniforms: {
+			source: { type: 't', value: baseFBO.texture },
+			shadow: { type: 't', value: shadowTexture.front.texture },
+			resolution: { type: 'v2', value: new THREE.Vector2() },
+			samples: { type: 'f', value: 0 }
+		},
+		vertexShader: document.getElementById('ortho-vs').textContent,
+		fragmentShader: document.getElementById('combine-fs').textContent,
+	} );
+
+	combineTexture = new ShaderTexture( renderer, combineShader, 1, 1 );
 
 }
 
@@ -238,7 +360,7 @@ function init() {
 
 	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
 	renderer.setPixelRatio( window.devicePixelRatio );
-	renderer.setClearColor( 0x261b1f, 1 );
+	renderer.setClearColor( 0, 1 );
 	container.appendChild( renderer.domElement );
 
 	helper = new FBOHelper( renderer );
@@ -248,6 +370,10 @@ function init() {
 	renderer.shadowMap.type = THREE.PCFShadowMap;
 
 	controls = new THREE.OrbitControls( camera, renderer.domElement );
+	controls.addEventListener( 'change', function() {
+		samples = 0;
+		shadowShader.uniforms.reset.value = 1;
+	})
 
 	initScene();
 	onWindowResized();
@@ -267,17 +393,57 @@ function onWindowResized( event ) {
 	camera.aspect = w / h;
 	camera.updateProjectionMatrix();
 
+	var dPR = window.devicePixelRatio;
+	baseFBO.setSize( w * dPR, h * dPR );
+	combineTexture.setSize( w * dPR, h * dPR );
+	shadowTexture.setSize( w * dPR, h * dPR );
+	tmpShadowFBO.setSize( w * dPR, h * dPR );
+	helper.refreshFBO( baseFBO );
+	//helper.refreshFBO( shadowFBO );
+
 	helper.setSize( w, h );
+	samples = 0;
 
 }
 
+var samples = 0;
 function animate() {
 
 	requestAnimationFrame( animate );
 
 	controls.update();
 
-	renderer.render( scene, camera );
+	if( mesh ) {
+		mesh.material = material;
+		mesh.castShadow = mesh.receiveShadow = false;
+		light1.visible = false;
+		light2.visible = true;
+		renderer.render( scene, camera, baseFBO );
+		mesh.material = shadowMaterial;
+		if( samples < 300 ) {
+			for( var j = 0; j < 10; j++ ) {
+				var r = 10;
+				var theta = Math.random() * Math.PI;
+				var phi = Math.random() * 2 * Math.PI;
+				var x = r * Math.sin( theta ) * Math.cos( phi );
+				var y = r * Math.sin( theta ) * Math.sin( phi );
+				var z = r * Math.cos( theta );
+				light1.position.set( x,y,z );
+				mesh.castShadow = mesh.receiveShadow = true;
+				light1.visible = true;//light2.visible = true;
+				light1.position
+				renderer.render( scene, camera, tmpShadowFBO );
+				shadowTexture.render();
+				samples++;
+			}
+		}
+		combineShader.uniforms.samples.value = samples;
+		combineShader.uniforms.shadow.value = shadowTexture.front.texture;
+		combineTexture.render( true );
+	}
+
+	shadowShader.uniforms.reset.value = 0;
+
 	helper.update();
 }
 
