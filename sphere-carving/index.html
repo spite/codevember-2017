@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 	<head>
-		<title>TITLE - Codevember 2017</title>
+		<title>Sphere Carving - Codevember 2017</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 
@@ -13,15 +13,20 @@
 
 		<div id="container"></div>
 		<div id="info" >
-			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
-			<h1>#. TITLE</h1>
-			<p>Lorem ipsum</p>
+			<p><a href="../sound-waves" >Previous</a><!-- | <a href="../n" >Next</a>--></p>
+			<h1>5. Sphere Carving</h1>
+			<p>Sliced arcs of a spherical shell, jumbled around, and ambient occlusion from accumulating shadows from a randomly placed light spherically around the object.</p>
+			<p><a href="#" id="generate" >Click here to generate a new one</a></p>
+			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out.</p>
 			<p id="moreDetails"><b>More details...</b></p>
 		</div>
 		<div id="details" class="hidden">
 			<div class="content" >
 				<h1>Details</h1>
-				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<p>Sliced arcs of a spherical shell, jumbled around, and ambient occlusion from accumulating shadows from a randomly placed light spherically around the object.</p>
+				<p>Based on <a href="https://mir-s3-cdn-cf.behance.net/project_modules/max_1200/fd267f19253039.562d7465401ae.jpg" >Zeus // Jupiter</a> from <a href="https://www.behance.net/gallery/19253039/Monas-Hieroglyphica" >Monas Hieroglyphica</a> by Michele Durazzi.</p>
+				<p>Built with <a href="threejs.org">three.js</a>.</p>
+				<p>Code available on <a href="https://github.com/spite/codevember-2017/tree/master/sphere-carving" >GitHub</a>.</p>
 				<a href="#" id="close-details">Close</a>
 			</div>
 		</div>
@@ -209,6 +214,7 @@ void main() {
     color.rgb *= vignette;
 
     color.rgb = blendSoftLight( color.rgb, color.rgb, .1 );
+    color.rgb = blendSoftLight( color.rgb, color.rgb, .1 );
 
     gl_FragColor = color;
 
@@ -227,7 +233,7 @@ var helper;
 
 var container = document.getElementById( 'container' );
 
-var widthSegments = 80;
+var widthSegments = 40;
 var heightSegments = 1;
 
 function createRing( r, thetaStart ) {
@@ -251,7 +257,7 @@ function createSection( thetaStart, thetaLength ) {
 	var res = new THREE.Geometry();
 	var levels = 0;
 	for( var j = 0; j < segments; j++ ) {
-		res.vertices = res.vertices.concat( createRing( 1, thetaStart + j * thetaLength / segments ) );
+		res.vertices = res.vertices.concat( createRing( 1, thetaStart + j * thetaLength / ( segments - 1 ) ) );
 	}
 
 	// outer shell
@@ -269,7 +275,7 @@ function createSection( thetaStart, thetaLength ) {
 	var ptr = res.vertices.length;
 
 	for( var j = 0; j < segments; j++ ) {
-		res.vertices = res.vertices.concat( createRing( .9, thetaStart + j * thetaLength / segments ) );
+		res.vertices = res.vertices.concat( createRing( .9, thetaStart + j * thetaLength / ( segments - 1 ) ) );
 	}
 
 	// inner shell
@@ -343,76 +349,71 @@ var mesh, material;
 var shadowMaterial = new THREE.MeshPhongMaterial( { color: 0xffffff, shininess: 0 })
 function createSphere() {
 
-	var loader = new THREE.TextureLoader();
-	loader.load( '../assets/Multi-Area-Light.jpg', function( res ) {
+	if( mesh ) scene.remove( mesh );
+	samples = 0;
+	shadowShader.uniforms.reset.value = 1;
 
-		var equiToCube = new EquirectangularToCubemap( renderer );
+	var s = 0;
+	var mat = new THREE.Matrix4();
+	var geo = new THREE.Geometry();
 
-		var m = new THREE.MeshBasicMaterial( { size: .01, wireframe: false, side: THREE.FrontSide, shading: THREE.FlatShading }) ;
-		//var m2 = new THREE.MeshStandardMaterial( { envMap: equiToCube.convert( res, 1024 ), metalness: 5 } )
-		material = new THREE.MeshStandardMaterial( { color: 0xffffff,envMap: equiToCube.convert( res, 1024 ), metalness: .25, roughness: .5 } )
-		//var m2 = new THREE.MeshPhongMaterial( {  }) ;
-		var s = 0;
-		var mat = new THREE.Matrix4();
-		var geo = new THREE.Geometry();
-		for( var j = 0; j < Math.PI; j += 0 ) {
-			var step = .1;//.1 + Math.random() * .2;
-			var c = createSection( j, .2 );
-			var phi = Math.random() * 2 * Math.PI;
-			var x = r * Math.sin( j ) * Math.cos( phi );
-			var y = r * Math.sin( j ) * Math.sin( phi );
-			var z = r * Math.cos( j );
-			var dir = new THREE.Vector3( x,y,z);
-			dir.normalize().multiplyScalar(.1);
-			mat.identity();
-			mat.makeTranslation( dir.x, dir.y, dir.z );
-			geo.merge( c, mat );
+	var steps = [];
+	var cap1 = .1 + Math.random() * .2;
+	var cap2 = .1 + Math.random() * .2;
+	var remain = 1. - cap1 - cap2;
+	steps = [cap1];
+	var slices = 8 + Math.random() * 8;
+	var tmpSlices = [];
+	var total = 0;
+	for( var j = 0; j < slices; j++ ) {
+		var v = .1 + Math.random();
+		tmpSlices.push( v );
+		total += v;
+	}
+	var final = 0;
+	tmpSlices.forEach( function(s) {
+		var v = s * remain / total;
+		steps.push( v );
+		final += v;
+	});
+	steps.push( 1 - final - cap1 );
 
-			j += step;
-		}
+	/*for( var j = 0; j < Math.PI; j += 0 ) {
+		var step = .1;//.1 + Math.random() * .2;
+		var c = createSection( j, .2 );
+		var phi = Math.random() * 2 * Math.PI;
+		var x = r * Math.sin( j ) * Math.cos( phi );
+		var y = r * Math.sin( j ) * Math.sin( phi );
+		var z = r * Math.cos( j );
+		var dir = new THREE.Vector3( x,y,z);
+		dir.normalize().multiplyScalar(.1);
+		mat.identity();
+		mat.makeTranslation( dir.x, dir.y, dir.z );
+		geo.merge( c, mat );
 
-		mesh = new THREE.Mesh( geo, material );
-		scene.add( mesh );
-		mesh.rotation.x = .2;
+		j += step;
+	}*/
 
-	} );
+	var r = 1;
+	var a = 0;
+	for( var j = 0; j < steps.length; j ++ ) {
+		var step = steps[j] * Math.PI;
+		var c = createSection( a, step );
+		var phi = Math.random() * 2 * Math.PI;
+		var x = r * Math.sin( a ) * Math.cos( phi );
+		var y = r * Math.sin( a ) * Math.sin( phi );
+		var z = r * Math.cos( a );
+		var dir = new THREE.Vector3( x,y,z);
+		dir.normalize().multiplyScalar(.1);
+		mat.identity();
+		mat.makeTranslation( dir.x, dir.y, dir.z );
+		geo.merge( c, mat );
+		a += step;
+	}
 
-	light1 = new THREE.DirectionalLight( 0xffffff, .5 );
-	light1.position.set( 1, 10, 1 );
-	light1.castShadow = true;
-	scene.add( light1 );
-	scene.add( light1.target );
-
-	var r = 2;
-	light1.shadow.mapSize.set( 1024, 1024 );
-	light1.shadow.camera.left = -r;
-	light1.shadow.camera.right = r;
-	light1.shadow.camera.top = r;
-	light1.shadow.camera.bottom = -r;
-	light1.shadow.camera.updateProjectionMatrix();
-
-	renderer.render( scene, camera );
-
-	helper.attach( light1.shadow.map, 'shadow' );
-
-	light2 = new THREE.HemisphereLight( 0xf8f9f4, 0x6e86a0, .5 );
-	scene.add( light2 );
-	/*var c = createSection( .5, .3 );
-	var mesh = new THREE.Mesh( c, m2 );
+	mesh = new THREE.Mesh( geo, material );
 	scene.add( mesh );
-
-	var c = createSection( Math.PI / 2, .3 );
-	var mesh = new THREE.Mesh( c, m2 );
-	scene.add( mesh );
-
-	var c = createSection( .4 + Math.PI / 2, .2 );
-	var mesh = new THREE.Mesh( c, m2 );
-	scene.add( mesh );
-
-	var c = createSection( .7 + Math.PI / 2, .15 );
-	var mesh = new THREE.Mesh( c, m2 );
-	scene.add( mesh );*/
-
+	mesh.rotation.x = .2;
 
 }
 
@@ -436,7 +437,34 @@ var backdrop;
 
 function initScene() {
 
-	createSphere();
+	var loader = new THREE.TextureLoader();
+	loader.load( '../assets/Multi-Area-Light.jpg', function( res ) {
+		var equiToCube = new EquirectangularToCubemap( renderer );
+		material = new THREE.MeshStandardMaterial( { color: 0xffffff,envMap: equiToCube.convert( res, 1024 ), metalness: .25, roughness: .5 } )
+		createSphere();
+	});
+
+
+	light1 = new THREE.DirectionalLight( 0xffffff, .5 );
+	light1.position.set( 1, 10, 1 );
+	light1.castShadow = true;
+	scene.add( light1 );
+	scene.add( light1.target );
+
+	var r = 2;
+	light1.shadow.mapSize.set( 1024, 1024 );
+	light1.shadow.camera.left = -r;
+	light1.shadow.camera.right = r;
+	light1.shadow.camera.top = r;
+	light1.shadow.camera.bottom = -r;
+	light1.shadow.camera.updateProjectionMatrix();
+
+	renderer.render( scene, camera );
+
+	helper.attach( light1.shadow.map, 'shadow' );
+
+	light2 = new THREE.HemisphereLight( 0xf8f9f4, 0x6e86a0, .5 );
+	scene.add( light2 );
 
 	baseFBO = createRenderTarget();
 	tmpShadowFBO = createRenderTarget();
@@ -507,7 +535,7 @@ function init() {
 
 	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
 	camera.target = new THREE.Vector3( 0, 0, 0 );
-	camera.position.set( 0.8, 1.2, 1.3 );
+	camera.position.set( 1.8, -1.2, 1.3 );
 	camera.lookAt( camera.target );
 	scene.add( camera );
 
@@ -519,7 +547,7 @@ function init() {
 	addCommonUI( renderer.domElement );
 
 	helper = new FBOHelper( renderer );
-	//helper.show( false );
+	helper.show( false );
 
 	renderer.shadowMap.enabled = true;
 	renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -532,6 +560,8 @@ function init() {
 
 	initScene();
 	onWindowResized();
+
+	document.getElementById( 'generate' ).addEventListener( 'click', createSphere );
 
 	window.addEventListener( 'resize', onWindowResized );
 
@@ -573,6 +603,7 @@ function animate() {
 	requestAnimationFrame( animate );
 
 	controls.update();
+	backdrop.position.copy( camera.position );
 
 	if( mesh ) {
 		backdrop.visible = true;
