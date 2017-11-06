@@ -394,11 +394,13 @@ function createSphere() {
 		j += step;
 	}*/
 
+	var sparseness = .1 + .9 * Math.random()
+
 	var r = 1;
 	var a = 0;
 	for( var j = 0; j < steps.length; j ++ ) {
 		var step = steps[j] * Math.PI;
-		var c = createSection( a, step );
+		var c = createSection( a, step * sparseness );
 		var phi = Math.random() * 2 * Math.PI;
 		var x = r * Math.sin( a ) * Math.cos( phi );
 		var y = r * Math.sin( a ) * Math.sin( phi );
