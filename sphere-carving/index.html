@@ -51,7 +51,6 @@ void main() {
 precision highp float;
 
 varying vec2 vUv;
-uniform vec2 dimensions;
 uniform sampler2D source;
 uniform sampler2D shadow;
 uniform float samples;
@@ -71,7 +70,7 @@ vec3 blendSoftLight(vec3 base, vec3 blend, float opacity) {
 void main() {
 	vec4 b = texture2D( source, vUv);
 	vec4 s = texture2D( shadow, vUv);
-	gl_FragColor = mix( b, vec4( blendSoftLight( s.rgb, b.rgb ), 1. ), samples / 300. );
+	gl_FragColor = mix( b, vec4( blendSoftLight( s.rgb, b.rgb ), 1. ), s.a * samples / 300. );
 }
 </script>
 
@@ -89,6 +88,132 @@ void main() {
 	vec4 c = .99 * s + .01 * b;
 	gl_FragColor = c;
 }
+</script>
+
+<script id="backdrop-fs" type="x-shader/x-fragment">
+precision highp float;
+
+varying vec2 vUv;
+
+uniform vec3 top;
+uniform vec3 bottom;
+
+float random(vec2 n, float offset ){
+	return .5 - fract(sin(dot(n.xy + vec2( offset, 0. ), vec2(12.9898, 78.233)))* 43758.5453);
+}
+
+void main() {
+	gl_FragColor = vec4( mix( top, bottom, vUv.y ), 1.);
+ 	gl_FragColor += vec4( vec3( .01 * random( vUv, 0. ) ), 1. );
+}
+</script>
+
+<script type="x-shader/x-fragment" id="final-fs" >
+precision highp float;
+
+uniform sampler2D inputTexture;
+uniform vec2 resolution;
+
+uniform float boost;
+uniform float reduction;
+
+uniform float amount;
+uniform float time;
+uniform float inverse;
+
+varying vec2 vUv;
+
+#define FXAA_REDUCE_MIN   (1.0/128.0)
+#define FXAA_REDUCE_MUL   (1.0/8.0)
+#define FXAA_SPAN_MAX     8.0
+
+float random(vec2 n, float offset ){
+	return .5 - fract(sin(dot(n.xy + vec2( offset, 0. ), vec2(12.9898, 78.233)))* 43758.5453);
+}
+
+vec3 gammaCorrect(vec3 color, float gamma){
+    return pow(color, vec3(1.0/gamma));
+}
+
+vec3 levelRange(vec3 color, float minInput, float maxInput){
+    return min(max(color - vec3(minInput), vec3(0.0)) / (vec3(maxInput) - vec3(minInput)), vec3(1.0));
+}
+
+vec3 finalLevels(vec3 color, float minInput, float gamma, float maxInput){
+    return gammaCorrect(levelRange(color, minInput, maxInput), gamma);
+}
+
+float blendSoftLight(float base, float blend) {
+	return (blend<0.5)?(2.0*base*blend+base*base*(1.0-2.0*blend)):(sqrt(base)*(2.0*blend-1.0)+2.0*base*(1.0-blend));
+}
+
+vec3 blendSoftLight(vec3 base, vec3 blend) {
+	return vec3(blendSoftLight(base.r,blend.r),blendSoftLight(base.g,blend.g),blendSoftLight(base.b,blend.b));
+}
+
+vec3 blendSoftLight(vec3 base, vec3 blend, float opacity) {
+	return (blendSoftLight(base, blend) * opacity + base * (1.0 - opacity));
+}
+
+void main() {
+
+    vec2 res = 1. / resolution;
+
+    vec3 rgbNW = texture2D( inputTexture, ( vUv.xy + vec2( -1.0, -1.0 ) * res ) ).xyz;
+    vec3 rgbNE = texture2D( inputTexture, ( vUv.xy + vec2( 1.0, -1.0 ) * res ) ).xyz;
+    vec3 rgbSW = texture2D( inputTexture, ( vUv.xy + vec2( -1.0, 1.0 ) * res ) ).xyz;
+    vec3 rgbSE = texture2D( inputTexture, ( vUv.xy + vec2( 1.0, 1.0 ) * res ) ).xyz;
+    vec4 rgbaM  = texture2D( inputTexture,  vUv.xy  * res );
+    vec3 rgbM  = rgbaM.xyz;
+    vec3 luma = vec3( 0.299, 0.587, 0.114 );
+
+    float lumaNW = dot( rgbNW, luma );
+    float lumaNE = dot( rgbNE, luma );
+    float lumaSW = dot( rgbSW, luma );
+    float lumaSE = dot( rgbSE, luma );
+    float lumaM  = dot( rgbM,  luma );
+    float lumaMin = min( lumaM, min( min( lumaNW, lumaNE ), min( lumaSW, lumaSE ) ) );
+    float lumaMax = max( lumaM, max( max( lumaNW, lumaNE) , max( lumaSW, lumaSE ) ) );
+
+    vec2 dir;
+    dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
+    dir.y =  ((lumaNW + lumaSW) - (lumaNE + lumaSE));
+
+    float dirReduce = max( ( lumaNW + lumaNE + lumaSW + lumaSE ) * ( 0.25 * FXAA_REDUCE_MUL ), FXAA_REDUCE_MIN );
+
+    float rcpDirMin = 1.0 / ( min( abs( dir.x ), abs( dir.y ) ) + dirReduce );
+    dir = min( vec2( FXAA_SPAN_MAX,  FXAA_SPAN_MAX),
+          max( vec2(-FXAA_SPAN_MAX, -FXAA_SPAN_MAX),
+                dir * rcpDirMin)) * res;
+    vec4 rgbA = (1.0/2.0) * (
+    texture2D(inputTexture,  vUv.xy + dir * (1.0/3.0 - 0.5)) +
+    texture2D(inputTexture,  vUv.xy + dir * (2.0/3.0 - 0.5)));
+    vec4 rgbB = rgbA * (1.0/2.0) + (1.0/4.0) * (
+    texture2D(inputTexture,  vUv.xy + dir * (0.0/3.0 - 0.5)) +
+    texture2D(inputTexture,  vUv.xy + dir * (3.0/3.0 - 0.5)));
+    float lumaB = dot(rgbB, vec4(luma, 0.0));
+
+    vec4 color;
+    if ( ( lumaB < lumaMin ) || ( lumaB > lumaMax ) ) {
+        color = rgbA;
+    } else {
+        color = rgbB;
+    }
+
+	color.rgb = finalLevels(color.rgb, 0.0/255.0, 1.28, 191.0/255.0);
+
+    vec2 position = ( gl_FragCoord.xy / resolution ) - .5;
+	float vignette = length( position );
+    vignette = boost - vignette * reduction;
+
+    color.rgb *= vignette;
+
+    color.rgb = blendSoftLight( color.rgb, color.rgb, .1 );
+
+    gl_FragColor = color;
+
+}
+
 </script>
 
 <script>
@@ -215,7 +340,7 @@ function createSection( thetaStart, thetaLength ) {
 
 var light1, light2;
 var mesh, material;
-var shadowMaterial = new THREE.MeshPhongMaterial( {})
+var shadowMaterial = new THREE.MeshPhongMaterial( { color: 0xffffff, shininess: 0 })
 function createSphere() {
 
 	var loader = new THREE.TextureLoader();
@@ -248,6 +373,7 @@ function createSphere() {
 
 		mesh = new THREE.Mesh( geo, material );
 		scene.add( mesh );
+		mesh.rotation.x = .2;
 
 	} );
 
@@ -255,6 +381,7 @@ function createSphere() {
 	light1.position.set( 1, 10, 1 );
 	light1.castShadow = true;
 	scene.add( light1 );
+	scene.add( light1.target );
 
 	var r = 2;
 	light1.shadow.mapSize.set( 1024, 1024 );
@@ -294,7 +421,7 @@ function createRenderTarget() {
 	return new THREE.WebGLRenderTarget( 1, 1, {
 		wrapS: THREE.ClampToEdgeWrapping,
 		wrapT: THREE.ClampToEdgeWrapping,
-		format: THREE.RGBFormat,
+		format: THREE.RGBAFormat,
 		stencilBuffer: false,
 		depthBuffer: true
 	});
@@ -303,8 +430,9 @@ function createRenderTarget() {
 
 var baseFBO;
 var tmpShadowFBO;
-var combineShader, shadowShader;
-var combineTexture, shadowTexture;
+var combineShader, shadowShader, finalShader;
+var combineTexture, shadowTexture, finalTexture;
+var backdrop;
 
 function initScene() {
 
@@ -333,7 +461,6 @@ function initScene() {
 		uniforms: {
 			source: { type: 't', value: baseFBO.texture },
 			shadow: { type: 't', value: shadowTexture.front.texture },
-			resolution: { type: 'v2', value: new THREE.Vector2() },
 			samples: { type: 'f', value: 0 }
 		},
 		vertexShader: document.getElementById('ortho-vs').textContent,
@@ -341,12 +468,38 @@ function initScene() {
 	} );
 
 	combineTexture = new ShaderTexture( renderer, combineShader, 1, 1 );
+	helper.attach( combineTexture.fbo, 'combine' );
 
+	finalShader = new THREE.RawShaderMaterial( {
+		uniforms: {
+			inputTexture: { type: 't', value: combineTexture.fbo.texture },
+			resolution: { type: 'v2', value: new THREE.Vector2() },
+			boost: { type: 'f', value: 1.1 },
+			reduction: { type: 'f', value: 1.1 },
+		},
+		vertexShader: document.getElementById('ortho-vs').textContent,
+		fragmentShader: document.getElementById('final-fs').textContent,
+	} );
+
+	finalTexture = new ShaderTexture( renderer, finalShader, 1, 1 );
+
+	backdrop = new THREE.Mesh(
+		new THREE.IcosahedronGeometry(3,4),
+		new THREE.RawShaderMaterial( {
+		uniforms: {
+				top: { type: 'c', value: new THREE.Color().setHex(0x394555),
+				bottom: { type: 'c', value: new THREE.Color().setHex(0xcad9dc)}}
+			},
+			vertexShader: document.getElementById('ortho-vs').textContent,
+			fragmentShader: document.getElementById('backdrop-fs').textContent,
+			depthWrite: false,
+			side: THREE.BackSide
+		} ),
+	)
+	scene.add( backdrop );
 }
 
 function init() {
-
-	addCommonUI();
 
 	container = document.getElementById( 'container' );
 
@@ -360,8 +513,10 @@ function init() {
 
 	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
 	renderer.setPixelRatio( window.devicePixelRatio );
-	renderer.setClearColor( 0, 1 );
+	renderer.setClearColor( 0, 0 );
 	container.appendChild( renderer.domElement );
+
+	addCommonUI( renderer.domElement );
 
 	helper = new FBOHelper( renderer );
 	//helper.show( false );
@@ -398,8 +553,14 @@ function onWindowResized( event ) {
 	combineTexture.setSize( w * dPR, h * dPR );
 	shadowTexture.setSize( w * dPR, h * dPR );
 	tmpShadowFBO.setSize( w * dPR, h * dPR );
+	finalTexture.setSize( w * dPR, h * dPR );
+	finalShader.uniforms.resolution.value.set( w * dPR, h * dPR );
+
 	helper.refreshFBO( baseFBO );
-	//helper.refreshFBO( shadowFBO );
+	helper.refreshFBO( combineTexture.fbo );
+	helper.refreshFBO( shadowTexture.front );
+	helper.refreshFBO( tmpShadowFBO );
+	helper.refreshFBO( combineTexture.fbo );
 
 	helper.setSize( w, h );
 	samples = 0;
@@ -414,23 +575,26 @@ function animate() {
 	controls.update();
 
 	if( mesh ) {
+		backdrop.visible = true;
 		mesh.material = material;
 		mesh.castShadow = mesh.receiveShadow = false;
 		light1.visible = false;
 		light2.visible = true;
 		renderer.render( scene, camera, baseFBO );
 		mesh.material = shadowMaterial;
+		backdrop.visible = false;
 		if( samples < 300 ) {
-			for( var j = 0; j < 10; j++ ) {
+			for( var j = 0; j < 5; j++ ) {
 				var r = 10;
 				var theta = Math.random() * Math.PI;
 				var phi = Math.random() * 2 * Math.PI;
 				var x = r * Math.sin( theta ) * Math.cos( phi );
 				var y = r * Math.sin( theta ) * Math.sin( phi );
 				var z = r * Math.cos( theta );
-				light1.position.set( x,y,z );
+				light1.position.set(x,y,z);
 				mesh.castShadow = mesh.receiveShadow = true;
-				light1.visible = true;//light2.visible = true;
+				light1.visible = true;
+				light2.visible = true;
 				light1.position
 				renderer.render( scene, camera, tmpShadowFBO );
 				shadowTexture.render();
@@ -439,7 +603,8 @@ function animate() {
 		}
 		combineShader.uniforms.samples.value = samples;
 		combineShader.uniforms.shadow.value = shadowTexture.front.texture;
-		combineTexture.render( true );
+		combineTexture.render();
+		finalTexture.render( true );
 	}
 
 	shadowShader.uniforms.reset.value = 0;
