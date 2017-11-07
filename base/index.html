@@ -46,15 +46,13 @@ function initScene() {
 
 function init() {
 
-	addCommonUI();
-
 	container = document.getElementById( 'container' );
 
 	scene = new THREE.Scene();
 
 	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
 	camera.target = new THREE.Vector3( 0, 0, 0 );
-	camera.position.set( 0, 0, 200 );
+	camera.position.set( 0, 0, 2 );
 	camera.lookAt( camera.target );
 	scene.add( camera );
 
@@ -62,6 +60,8 @@ function init() {
 	renderer.setPixelRatio( window.devicePixelRatio );
 	renderer.setClearColor( 0x261b1f, 1 );
 	container.appendChild( renderer.domElement );
+
+	addCommonUI(renderer.domElement);
 
 	renderer.shadowMap.enabled = true;
 	renderer.shadowMap.type = THREE.PCFShadowMap;
