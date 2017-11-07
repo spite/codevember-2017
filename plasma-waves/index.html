@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 	<head>
-		<title>TITLE - Codevember 2017</title>
+		<title>Plasma Waves - Codevember 2017</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 
@@ -13,16 +13,18 @@
 
 		<div id="container"></div>
 		<div id="info" >
-			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
-			<h1>#. TITLE</h1>
-			<p>Lorem ipsum</p>
-			<p id="moreDetails"><b>More details...</b></p>
+			<p><a href="../sphere-carving" >Previous</a> <!--| <a href="../n" >Next</a>--></p>
+			<h1>#. Plasma Waves</h1>
+			<p>Experiment with sorting particles, set up with curl noise, and disturbed with another curl noise.</p>
+			<p><a href="#" id="generate" >Click here to generate a new one</a></p>
+			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out.</p>			<p id="moreDetails"><b>More details...</b></p>
 		</div>
 		<div id="details" class="hidden">
 			<div class="content" >
 				<h1>Details</h1>
-				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
-				<!-- http://developer.download.nvidia.com/assets/cuda/files/smokeParticles.pdf -->
+				<p>Experiment with sorting particles, set up with curl noise, and disturbed with another curl noise.</p>
+				<p>Built with <a href="threejs.org">three.js</a> and Perlin noise from <a href="https://github.com/josephg/noisejs" rel="external" >noisejs</a>.</p>
+				<p>Code available on <a href="https://github.com/spite/codevember-2017/tree/master/plasma-waves" >GitHub</a>.</p>
 				<a href="#" id="close-details">Close</a>
 			</div>
 		</div>
@@ -32,6 +34,38 @@
 		<script src="../js/OrbitControls.js"></script>
 		<script src="../js/Perlin.js"></script>
 		<script src="../js/Maf.js"></script>
+
+<script type="x-shader/x-vertex" id="ortho-vs" >
+precision highp float;
+attribute vec3 position;
+attribute vec2 uv;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+varying vec2 vUv;
+void main() {
+	vUv = uv;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1. );
+}
+</script>
+
+
+<script id="backdrop-fs" type="x-shader/x-fragment">
+precision highp float;
+
+varying vec2 vUv;
+
+uniform vec3 top;
+uniform vec3 bottom;
+
+float random(vec2 n, float offset ){
+	return .5 - fract(sin(dot(n.xy + vec2( offset, 0. ), vec2(12.9898, 78.233)))* 43758.5453);
+}
+
+void main() {
+	gl_FragColor = vec4( mix( vec3(40.)/255., vec3(20.)/255., vUv.y ), 1.);
+ 	gl_FragColor += vec4( vec3( .01 * random( vUv, 0. ) ), 1. );
+}
+</script>
 
 <script id="particle-vs" type="x-shader/x-vertex">
 precision highp float;
@@ -73,7 +107,7 @@ void main() {
 	vSize = size;
 	vUv = uvs[ id ];
 	float l = 1. - ( length( lightPosition - position.xyz ) -.8 ) / 1.;
-	vColor = hsv2rgb( vec3( size, 1., 1. ) );//vec3( 2. * l );
+	vColor = hsv2rgb( vec3( .5 * size, 1., 1. ) );//vec3( 2. * l );
 
 	gl_Position = projectionMatrix * p;
 
@@ -93,7 +127,10 @@ uniform float opacity;
 void main() {
 
 	vec2 barycenter = vec2( .5, .6666 );
-	gl_FragColor.rgb = vColor;
+	float d = smoothstep( .5, .55, 1. - 2. * length( vUv - barycenter ) );
+	float a = 1. - smoothstep( .9, 1., 5. * length( vUv - barycenter ) );
+	//if( d <= 0. || a * opacity <= 0. ) discard;
+	gl_FragColor = vec4( vColor, .5 * d * opacity );
 	gl_FragColor.a = opacity * ( 1. - 3.5 * length( vUv - barycenter ) );
 
 }
@@ -112,6 +149,7 @@ var helper;
 var container = document.getElementById( 'container' );
 
 var particles = [];
+var base = [];
 var lightPosition = new THREE.Vector3( 1,1,1);
 var NUM_POINTS = 25000;
 
@@ -119,9 +157,43 @@ var halfAngle = new THREE.Vector3();
 var tmpCamPos = new THREE.Vector3();
 var tmpLightPos = new THREE.Vector3();
 var tmpVector = new THREE.Vector3();
-var numSlices = 1;
+var numSlices = 10;
 var meshes = [];
 var batchSize = NUM_POINTS / numSlices;
+var backdrop;
+
+var funcs = [
+	[74.51214174553195, 76.46362999277221, 70.36038981251878, -67.14031243600527, -17.613196891616084, -39.83080533905654],
+	[-67.25713379627214,-30.990234719283237,50.387967864983665,-42.52547938083211,94.51583454649355,-65.69789717406226],
+	[-53.380410001610954,84.45779391157623,74.83172310252226,-99.67348110585826,-75.63953402188895,-51.75312432560659]
+];
+
+function createObject() {
+
+	var t = new THREE.Vector4();
+	/*for( var j = 0; j < NUM_POINTS; j++ ) {
+		t.set( .5 - Math.random(), .5 - Math.random(), .5 - Math.random(), .5 + 2 * Math.random() );
+		t.set( .5 - Math.random(), .5 - Math.random(), .5 - Math.random(), .5 + 2 * Math.random() );
+		particles.push( t.clone() );
+	}*/
+	var l = 20;
+	var r = .5;
+	var ptr = 0;
+	for( var j = 0; j < NUM_POINTS; j+= l ) {
+		var p = new THREE.Vector3( r * ( .5 - Math.random() ), r* ( .5 - Math.random() ), r* ( .5 - Math.random() ) );
+		for( var k = 0; k < l; k++ ) {
+			var inc = noiseFunc( p.clone().multiplyScalar( .5 ) ).normalize().multiplyScalar( .5 );
+			p.add( inc );
+			var s = 2 * ( 1. - ( k / l ) );
+			var s = .1 * ( 2 * l - k );
+			t.set( p.x, p.y, p.z, s );
+			particles[ ptr ].copy( t );
+			base[ptr].copy(t);
+			ptr++;
+		}
+	}
+
+}
 
 function initScene() {
 
@@ -132,25 +204,22 @@ function initScene() {
 		particles.push( t.clone() );
 	}*/
 	var l = 20;
-	var r = 1;
-	var t = 0;
-	for( var j = 0; j < NUM_POINTS; j += l ) {
-		var p = new THREE.Vector4( r * ( .5 - Math.random() ), r* ( .5 - Math.random() ), r* ( .5 - Math.random() ), 1 );
+	var r= .5;
+	for( var j = 0; j < NUM_POINTS; j+= l ) {
+		var p = new THREE.Vector3( r * ( .5 - Math.random() ), r* ( .5 - Math.random() ), r* ( .5 - Math.random() ) );
 		for( var k = 0; k < l; k++ ) {
-			tmpVector.copy( p ).multiplyScalar(.5);
-			var inc = noiseFunc( tmpVector, t ).multiplyScalar( .5 );
-			if( inc.length() > 1 ) inc.normalize();
-			p.add( inc );
-			p.w = 1 + k / l;
-			particles.push( p.clone() );
+			particles.push( t.clone() );
+			base.push( t.clone() );
 		}
 	}
+
+	createObject();
 
 	var particleMaterial = new THREE.RawShaderMaterial( {
 		uniforms:{
 			lightPosition: { type: 'v3', value: lightPosition },
 			scale: { type: 'f', value: .05 },
-			opacity: { type: 'f', value: .05 },
+			opacity: { type: 'f', value: .1 },
 			color: { type: 'c', value: new THREE.Color( 0x0 ) },
 			vertices: { type: 'v3v', value: [
 				new THREE.Vector3( -1, -1, 0 ),
@@ -215,6 +284,21 @@ function initScene() {
 	light.position.copy( lightPosition );
 	//scene.add( light );
 
+	backdrop = new THREE.Mesh(
+		new THREE.IcosahedronGeometry(3,4),
+		new THREE.RawShaderMaterial( {
+		uniforms: {
+				top: { type: 'c', value: new THREE.Color().setHex(0xe28929),
+				bottom: { type: 'c', value: new THREE.Color().setHex(0xff00ff)}}
+			},
+			vertexShader: document.getElementById('ortho-vs').textContent,
+			fragmentShader: document.getElementById('backdrop-fs').textContent,
+			depthWrite: false,
+			side: THREE.BackSide
+		} ),
+	)
+	scene.add( backdrop );
+
 }
 
 function noiseFunc0( v ){
@@ -226,7 +310,7 @@ function noiseFunc0( v ){
 
 }
 
-function generateNoiseFunction() {
+function generateNoiseFunction(preset) {
 
 	var a = Maf.randomInRange( -100, 100 );
 	var b = Maf.randomInRange( -100, 100 );
@@ -236,18 +320,26 @@ function generateNoiseFunction() {
 	var e = Maf.randomInRange( -100, 100 );
 	var f = Maf.randomInRange( -100, 100 );
 
+	if( preset ) {
+		a = preset[ 0 ]; b = preset[ 1 ]; c = preset[ 2 ];
+		d = preset[ 3 ]; e = preset[ 4 ]; f = preset[ 5 ];
+	}
+
+	console.log(a,b,c,d,e,f);
+
 	return function( v, t ) {
 
+		t = t || 0;
 		var s  = noise.simplex3( v.x + t, v.y, v.z );
 		var s1 = noise.simplex3( v.y + a, v.z + b + t, v.x + c );
-		var s2 = noise.simplex3( v.z + c, v.x + d + t, v.y + f );
+		var s2 = noise.simplex3( v.z + c, v.x + d, v.y + f + t );
 		return new THREE.Vector3( s , s1 , s2 );
 
 	}
 
 }
 
-var noiseFunc = generateNoiseFunction();
+var noiseFunc = generateNoiseFunction( funcs[ Math.floor( Math.random() * funcs.length ) ] );
 
 function init() {
 
@@ -263,7 +355,7 @@ function init() {
 
 	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
 	renderer.setPixelRatio( window.devicePixelRatio );
-	renderer.setClearColor( 0,1);//0x261b1f, 1 );
+	renderer.setClearColor( 0, 1 );
 	container.appendChild( renderer.domElement );
 
 	addCommonUI(renderer.domElement);
@@ -276,6 +368,11 @@ function init() {
 
 	initScene();
 	onWindowResized();
+
+	document.getElementById( 'generate' ).addEventListener( 'click', function() {
+		noiseFunc = generateNoiseFunction();
+		createObject();
+	});
 
 	window.addEventListener( 'resize', onWindowResized );
 
@@ -319,6 +416,14 @@ function sortParticles() {
 		halfAngle.copy( tmpCamPos ).multiplyScalar( -1 ).add( tmpLightPos ).normalize();
 	}
 
+	var t = .0001 * performance.now();
+	particles.forEach( function( p, id ) {
+		var b = base[ id ];
+		particles[ id ].copy( b );
+		var s = .25;
+		var inc = noiseFunc( new THREE.Vector3( s * b.x, s * b.y, s * b.z ), t );
+		particles[ id ].add( new THREE.Vector4( inc.x, inc.y, inc.z, 0 ) );
+	});
 
 	var sorted = [];
 	particles.forEach( function( p, id ) {
@@ -370,23 +475,7 @@ function animate() {
 
 	controls.update();
 
-	/*var l = 20;
-	var r = 1;
-	var t = .000025 * performance.now();
-	var tmpVector = new THREE.Vector3();
-	for( var j = 0; j < NUM_POINTS; j += l ) {
-		//var p = new THREE.Vector3( r * ( .5 - Math.random() ), r* ( .5 - Math.random() ), r* ( .5 - Math.random() ) );
-		var p = particles[ j ].clone();
-		for( var k = 1; k < l; k++ ) {
-			tmpVector.copy( p ).multiplyScalar(.5);
-			var inc = noiseFunc( tmpVector, t ).multiplyScalar( .5 );
-			if( inc.length() > 1 ) inc.normalize();
-			p.add( inc );
-			p.w = 1 + k / l;
-			particles[ j + k ].copy( p );
-		}
-	}*/
-
+	backdrop.position.copy( camera.position );
 	sortParticles();
 
 	renderer.render( scene, camera );
