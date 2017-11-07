@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>TITLE - Codevember 2017</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
+			<h1>#. TITLE</h1>
+			<p>Lorem ipsum</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+		<script src="../js/Perlin.js"></script>
+		<script src="../js/Maf.js"></script>
+
+<script id="particle-vs" type="x-shader/x-vertex">
+precision highp float;
+
+attribute vec3 position;
+attribute float vertexId;
+attribute float size;
+
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+uniform vec3 vertices[ 3 ];
+uniform vec2 uvs[ 3 ];
+uniform vec3 lightPosition;
+
+uniform vec2 dimensions;
+uniform float scale;
+uniform vec3 color;
+
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vSize;
+
+const float PI = 3.14159265359;
+
+vec3 hsv2rgb(vec3 c) {
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+void main() {
+
+	int id = int( vertexId );
+	vec3 v = vertices[ id ];
+	vec4 p = modelViewMatrix * vec4( position, 1. );
+	p.xyz += scale * v * size;
+
+	vSize = size;
+	vUv = uvs[ id ];
+	float l = 1. - ( length( lightPosition - position.xyz ) -.8 ) / 1.;
+	vColor = hsv2rgb( vec3( size, 1., 1. ) );//vec3( 2. * l );
+
+	gl_Position = projectionMatrix * p;
+
+}
+
+</script>
+
+<script id="particle-fs" type="x-shader/x-vertex">
+precision highp float;
+
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vSize;
+
+uniform float opacity;
+
+void main() {
+
+	vec2 barycenter = vec2( .5, .6666 );
+	gl_FragColor.rgb = vColor;
+	gl_FragColor.a = opacity * ( 1. - 3.5 * length( vUv - barycenter ) );
+
+}
+
+</script>
+
+<script>
+
+'use strict';
+
+var container, renderer, camera, controls, scene;
+var mesh;
+
+var helper;
+
+var container = document.getElementById( 'container' );
+
+var particles = [];
+var lightPosition = new THREE.Vector3( 1,1,1);
+var NUM_POINTS = 25000;
+
+var halfAngle = new THREE.Vector3();
+var tmpCamPos = new THREE.Vector3();
+var tmpLightPos = new THREE.Vector3();
+var tmpVector = new THREE.Vector3();
+var numSlices = 1;
+var meshes = [];
+var batchSize = NUM_POINTS / numSlices;
+
+function initScene() {
+
+	var t = new THREE.Vector4();
+	/*for( var j = 0; j < NUM_POINTS; j++ ) {
+		t.set( .5 - Math.random(), .5 - Math.random(), .5 - Math.random(), .5 + 2 * Math.random() );
+		t.set( .5 - Math.random(), .5 - Math.random(), .5 - Math.random(), .5 + 2 * Math.random() );
+		particles.push( t.clone() );
+	}*/
+	var l = 20;
+	var r = 1;
+	var t = 0;
+	for( var j = 0; j < NUM_POINTS; j += l ) {
+		var p = new THREE.Vector4( r * ( .5 - Math.random() ), r* ( .5 - Math.random() ), r* ( .5 - Math.random() ), 1 );
+		for( var k = 0; k < l; k++ ) {
+			tmpVector.copy( p ).multiplyScalar(.5);
+			var inc = noiseFunc( tmpVector, t ).multiplyScalar( .5 );
+			if( inc.length() > 1 ) inc.normalize();
+			p.add( inc );
+			p.w = 1 + k / l;
+			particles.push( p.clone() );
+		}
+	}
+
+	var particleMaterial = new THREE.RawShaderMaterial( {
+		uniforms:{
+			lightPosition: { type: 'v3', value: lightPosition },
+			scale: { type: 'f', value: .05 },
+			opacity: { type: 'f', value: .05 },
+			color: { type: 'c', value: new THREE.Color( 0x0 ) },
+			vertices: { type: 'v3v', value: [
+				new THREE.Vector3( -1, -1, 0 ),
+				new THREE.Vector3(  1, -1, 0 ),
+				new THREE.Vector3(  0,  1, 0 )
+			]},
+			uvs: { type: 'v2v', value: [
+				new THREE.Vector3( 0, 1 ),
+				new THREE.Vector3( 1, 1 ),
+				new THREE.Vector3( .5, 0 )
+			]}
+		},
+		vertexShader: document.getElementById( 'particle-vs' ).textContent,
+		fragmentShader: document.getElementById( 'particle-fs' ).textContent,
+		depthTest: false,
+		depthWrite: false,
+		transparent: true,
+	} );
+
+
+	for( var j = 0; j < numSlices; j++ ){
+
+		var geometry = new THREE.BufferGeometry();
+		geometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array( batchSize * 9 ), 3 ) );
+		geometry.addAttribute( 'vertexId', new THREE.BufferAttribute( new Float32Array( batchSize * 3 ), 1 ) );
+		geometry.addAttribute( 'size', new THREE.BufferAttribute( new Float32Array( batchSize * 3 ), 1 ) );
+
+		geometry.getAttribute( 'position' ).dynamic = true;
+		geometry.getAttribute( 'size' ).dynamic = true;
+
+		for( var k = 0; k < batchSize; k++ ) {
+			var v = particles[ j * batchSize + k ]
+			geometry.attributes.position.array[ k * 9 + 0 ] = v.x;
+			geometry.attributes.position.array[ k * 9 + 1 ] = v.y;
+			geometry.attributes.position.array[ k * 9 + 2 ] = v.z;
+
+			geometry.attributes.position.array[ k * 9 + 3 ] = v.x;
+			geometry.attributes.position.array[ k * 9 + 4 ] = v.y;
+			geometry.attributes.position.array[ k * 9 + 5 ] = v.z;
+
+			geometry.attributes.position.array[ k * 9 + 6 ] = v.x;
+			geometry.attributes.position.array[ k * 9 + 7 ] = v.y;
+			geometry.attributes.position.array[ k * 9 + 8 ] = v.z;
+
+			geometry.attributes.vertexId.array[ k * 3 + 0 ] = 0;
+			geometry.attributes.vertexId.array[ k * 3 + 1 ] = 1;
+			geometry.attributes.vertexId.array[ k * 3 + 2 ] = 2;
+
+			geometry.attributes.size.array[ k * 3 + 0 ] = 1;
+			geometry.attributes.size.array[ k * 3 + 1 ] = 1;
+			geometry.attributes.size.array[ k * 3 + 2 ] = 1;
+		}
+		var points = new THREE.Mesh( geometry, particleMaterial );
+		scene.add( points );
+		meshes.push( points );
+	}
+
+	var light = new THREE.Mesh(
+	    new THREE.BoxBufferGeometry(.1,.1,.1),
+	    new THREE.MeshBasicMaterial()
+	);
+	light.position.copy( lightPosition );
+	//scene.add( light );
+
+}
+
+function noiseFunc0( v ){
+
+	var s  = noise.simplex3( v.x, v.y, v.z );
+	var s1 = noise.simplex3( v.y - 19.1, v.z + 33.4, v.x + 47.2 );
+	var s2 = noise.simplex3( v.z + 74.2, v.x - 124.5, v.y + 99.4 );
+	return new THREE.Vector3( s , s1 , s2 );
+
+}
+
+function generateNoiseFunction() {
+
+	var a = Maf.randomInRange( -100, 100 );
+	var b = Maf.randomInRange( -100, 100 );
+	var c = Maf.randomInRange( -100, 100 );
+
+	var d = Maf.randomInRange( -100, 100 );
+	var e = Maf.randomInRange( -100, 100 );
+	var f = Maf.randomInRange( -100, 100 );
+
+	return function( v, t ) {
+
+		var s  = noise.simplex3( v.x + t, v.y, v.z );
+		var s1 = noise.simplex3( v.y + a, v.z + b + t, v.x + c );
+		var s2 = noise.simplex3( v.z + c, v.x + d + t, v.y + f );
+		return new THREE.Vector3( s , s1 , s2 );
+
+	}
+
+}
+
+var noiseFunc = generateNoiseFunction();
+
+function init() {
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 0, 0, 4.3 );
+	camera.lookAt( camera.target );
+	scene.add( camera );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0,1);//0x261b1f, 1 );
+	container.appendChild( renderer.domElement );
+
+	addCommonUI(renderer.domElement);
+
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+	renderer.sortObjects = false;
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	initScene();
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+}
+
+var dot = function() {
+
+	var tmpVector = new THREE.Vector3();
+
+	return function( a, b ) {
+		tmpVector.copy( a );
+		return tmpVector.dot( b );
+	}
+
+}();
+
+function sortParticles() {
+
+	tmpCamPos.copy( camera.position ).normalize();
+	tmpLightPos.copy( lightPosition ).normalize();
+
+	var renderOrder = 0;
+	if( dot( tmpCamPos, tmpLightPos ) > 0 ) {
+		renderOrder = 0;
+		halfAngle.copy( tmpCamPos ).add( tmpLightPos ).normalize();
+	} else {
+		renderOrder = 1;
+		halfAngle.copy( tmpCamPos ).multiplyScalar( -1 ).add( tmpLightPos ).normalize();
+	}
+
+
+	var sorted = [];
+	particles.forEach( function( p, id ) {
+		tmpVector.copy( p );
+		var d = dot( tmpVector, halfAngle );
+		sorted.push( { id: id, dot: d } );
+	})
+
+	sorted.sort( function( a,b ) {
+		return a.dot - b.dot;
+	})
+
+	var geometry;
+	var v;
+	var ptr;
+	var ptr2;
+	for( var j = 0; j < numSlices; j++ ) {
+		geometry = meshes[ j ].geometry;
+		for( var k = 0; k < batchSize; k++ ) {
+			ptr = j * batchSize + k;
+			if( renderOrder === 0 ) ptr2 = sorted[ ptr ].id;
+			else ptr2 = sorted[ sorted.length - 1 - ptr ].id;
+			v = particles[ ptr2 ];
+			geometry.attributes.position.array[ k * 9 + 0 ] = v.x;
+			geometry.attributes.position.array[ k * 9 + 1 ] = v.y;
+			geometry.attributes.position.array[ k * 9 + 2 ] = v.z;
+
+			geometry.attributes.position.array[ k * 9 + 3 ] = v.x;
+			geometry.attributes.position.array[ k * 9 + 4 ] = v.y;
+			geometry.attributes.position.array[ k * 9 + 5 ] = v.z;
+
+			geometry.attributes.position.array[ k * 9 + 6 ] = v.x;
+			geometry.attributes.position.array[ k * 9 + 7 ] = v.y;
+			geometry.attributes.position.array[ k * 9 + 8 ] = v.z;
+
+			geometry.attributes.size.array[ k * 3 + 0 ] = v.w;
+			geometry.attributes.size.array[ k * 3 + 1 ] = v.w;
+			geometry.attributes.size.array[ k * 3 + 2 ] = v.w;
+		}
+		geometry.attributes.position.needsUpdate = true;
+		geometry.attributes.size.needsUpdate = true;
+	}
+
+}
+
+function animate() {
+
+	requestAnimationFrame( animate );
+
+	controls.update();
+
+	/*var l = 20;
+	var r = 1;
+	var t = .000025 * performance.now();
+	var tmpVector = new THREE.Vector3();
+	for( var j = 0; j < NUM_POINTS; j += l ) {
+		//var p = new THREE.Vector3( r * ( .5 - Math.random() ), r* ( .5 - Math.random() ), r* ( .5 - Math.random() ) );
+		var p = particles[ j ].clone();
+		for( var k = 1; k < l; k++ ) {
+			tmpVector.copy( p ).multiplyScalar(.5);
+			var inc = noiseFunc( tmpVector, t ).multiplyScalar( .5 );
+			if( inc.length() > 1 ) inc.normalize();
+			p.add( inc );
+			p.w = 1 + k / l;
+			particles[ j + k ].copy( p );
+		}
+	}*/
+
+	sortParticles();
+
+	renderer.render( scene, camera );
+
+}
+
+window.addEventListener( 'load', init );
+
+</script>
+
+	</body>
+</html>
