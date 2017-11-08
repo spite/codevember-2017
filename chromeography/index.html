@@ -23,12 +23,24 @@
 	margin: 4px;
 	cursor:pointer;
 }
+#loading{
+	position: absolute;
+	left: 0; right: 0;
+	bottom: 0; top: 0;
+	width: 100%; height: 100%;
+	background-color: black;
+	text-align:center;
+	line-height: 0;
+	padding-top: 25%;
+	z-index:2000;
+}
 </style>
 </head>
 <body>
 
 <div id="container">
 	<div id="selector"></div>
+	<div id="loading" >Loading</div>
 </div>
 <div id="info" >
 	<p><a href="../plasma-waves" >Previous</a> <!--| <a href="../n" >Next</a>--></p>
@@ -62,6 +74,7 @@ attribute vec2 target;
 uniform mat4 modelViewMatrix;
 uniform mat4 projectionMatrix;
 
+uniform float size;
 uniform float blend;
 uniform sampler2D sourceTex;
 uniform sampler2D targetTex;
@@ -96,7 +109,6 @@ void main() {
     vec2 uvSource = source / dimensions.x;
     vec2 uvTarget = target / dimensions.x;
     vColor = mix( texture2D(sourceTex,uvSource).rgb, texture2D(targetTex,uvTarget).rgb, pBlend );
-    float size = 2.1;
     float scale = 1.;
     p.y *= -1.;
     vec4 mvPosition = modelViewMatrix * vec4( p, 1. );
@@ -261,6 +273,7 @@ void main() {
     				sourceTex: { type: 't', value: images[0].texture },
                     targetTex: { type: 't', value: images[1].texture },
                     blend: { type: 'f', value: 0 },
+                    size: { type: 'f', value: 2.1 },//window.devicePixelRatio },
                     dimensions: { type: 'v2', value: new THREE.Vector2(w,h)}
     			},
     			vertexShader: document.getElementById( 'particle-vs' ).textContent,
@@ -272,6 +285,7 @@ void main() {
 
     		renderer.render( scene,camera );
     		startTime = performance.now();
+    		document.getElementById('loading').style.display = 'none';
         }
 
 	}
@@ -282,7 +296,7 @@ void main() {
 
 		scene = new THREE.Scene();
 
-		camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
+		camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .001, 100 );
 		camera.target = new THREE.Vector3( 0, 0, 0 );
 		camera.position.set( 0, 0, 1 );
 		camera.lookAt( camera.target );
