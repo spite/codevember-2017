@@ -42,7 +42,8 @@
 	<div class="content" >
 		<h1>Details</h1>
 		<p>Fading one image into another and making those colors dance!</p>
-		<p>Images colors are sorted by
+		<p>Pixels in each image are sorted by saturation, keeping it´s position in the order array, and it´s original position in the image. That way, the first value in each buffer gives us position of the darkest point in each image. The second value, the second darkest, etc. With that is easy to mix source and targt in the vertex shader of the particles.</p>
+		<p>Built with <a href="threejs.org">three.js</a>.</p>
 		<a href="#" id="close-details">Close</a>
 	</div>
 </div>
