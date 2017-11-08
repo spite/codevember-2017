@@ -23,6 +23,8 @@
 			<div class="content" >
 				<h1>Details</h1>
 				<p>Experiment with sorting particles, set up with curl noise, and disturbed with another curl noise.</p>
+				<p>Originally was going to be smoke particles, from <a href="http://developer.download.nvidia.com/assets/cuda/files/smokeParticles.pdf" >Volumetric Particle
+Shadows</a>, but it ended up being this.</p>
 				<p>Built with <a href="threejs.org">three.js</a> and Perlin noise from <a href="https://github.com/josephg/noisejs" rel="external" >noisejs</a>.</p>
 				<p>Code available on <a href="https://github.com/spite/codevember-2017/tree/master/plasma-waves" >GitHub</a>.</p>
 				<a href="#" id="close-details">Close</a>
@@ -32,8 +34,9 @@
 		<script src="../js/Common.js"></script>
 		<script src="../js/three.min.js"></script>
 		<script src="../js/OrbitControls.js"></script>
-		<script src="../js/Perlin.js"></script>
+		<script src="../js/perlin.js"></script>
 		<script src="../js/Maf.js"></script>
+		<script src="../js/isMobile.min.js"></script>
 
 <script type="x-shader/x-vertex" id="ortho-vs" >
 precision highp float;
@@ -151,7 +154,7 @@ var container = document.getElementById( 'container' );
 var particles = [];
 var base = [];
 var lightPosition = new THREE.Vector3( 1,1,1);
-var NUM_POINTS = 25000;
+var NUM_POINTS = isMobile.any?10000:25000;
 
 var halfAngle = new THREE.Vector3();
 var tmpCamPos = new THREE.Vector3();
