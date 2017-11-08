@@ -7,21 +7,42 @@
 
 <link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
 <link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
-
+<style>
+#selector{
+	position: absolute;
+	bottom: 60px;
+	left: 0;
+	right: 0;
+	text-align: center;
+}
+#selector img{
+	width: 64px;
+	height: 64px;
+	border: 4px solid white;
+	box-shadow: 0 3px 5px rgba(0,0,0,.4);
+	margin: 4px;
+	cursor:pointer;
+}
+</style>
 </head>
 <body>
 
-<div id="container"></div>
+<div id="container">
+	<div id="selector"></div>
+</div>
 <div id="info" >
-	<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
+	<p><a href="../plasma-waves" >Previous</a> <!--| <a href="../n" >Next</a>--></p>
 	<h1>7. chromeography</h1>
 	<p>Fading one image into another and making those colors dance!</p>
+	<p>Select any of the four images at the bottom to fade into it.</p>
+	<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out.</p>
 	<p id="moreDetails"><b>More details...</b></p>
 </div>
 <div id="details" class="hidden">
 	<div class="content" >
 		<h1>Details</h1>
-		<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+		<p>Fading one image into another and making those colors dance!</p>
+		<p>Images colors are sorted by
 		<a href="#" id="close-details">Close</a>
 	</div>
 </div>
@@ -110,22 +131,24 @@ void main() {
 
 		var img = new Image();
 		img.addEventListener( 'load', function(e) {
-	       c(this);
+	       	c(this);
 		});
 		img.src = filename;
 
 	}
 
-    var images = {
-        from: '../assets/pearl.jpg',
-        to: '../assets/milkmaid.jpg'
-    }
+    var images = [
+        { file: '../assets/pearl.jpg' },
+        { file: '../assets/milkmaid.jpg' },
+        { file: '../assets/gioconda.jpg'  },
+        { file: '../assets/vincent.jpg'  }
+    ]
 
 	function sortPixels(img, callback) {
 
         var canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
         var ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0);
         var data = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -139,8 +162,9 @@ void main() {
 		}
 
 		rgb.sort( function( a, b ) {
+			return a.c.getHSL().h - b.c.getHSL().h
             //return a.c.getHSL().s - b.c.getHSL().s
-			return b.c.getHSL().s - a.c.getHSL().s
+			//return b.c.getHSL().s - a.c.getHSL().s
 		})
 
 		/*var canvas = document.createElement( 'canvas' );
@@ -176,39 +200,42 @@ void main() {
 	}
 
     var material;
+    var points;
 
 	function initScene() {
 
-        var source = null;
-        var target = null;
-        var sourceTexture = null;
-        var targetTexture = null;
+		images.forEach( function(i, id) {
 
-        loadImage( images.from, function(img) {
-            sourceTexture = new THREE.Texture(img);
-            sourceTexture.flipY = false;
-            sourceTexture.needsUpdate = true;
-            sortPixels(img, function(res){
-                source = res;
-                generateMesh();
-            });
-        })
+			loadImage( i.file, function(img) {
 
-        loadImage( images.to, function(img) {
-            targetTexture = new THREE.Texture(img);
-            targetTexture.flipY = false;
-            targetTexture.needsUpdate = true;
-            sortPixels(img, function(res){
-                target = res;
-                generateMesh();
-            });
-        })
+				i.image = img;
+	            i.texture = new THREE.Texture(img);
+	            i.texture.flipY = false;
+	            i.texture.needsUpdate = true;
+
+	            var copy = new Image();
+				copy.src = i.file;
+				copy.addEventListener('click',function(e) {
+					selectImage(id);
+				})
+				document.getElementById('selector').appendChild(copy)
+
+	            sortPixels(img, function(res){
+	                i.buffer = res;
+	                i.loaded = true;
+	                generateMesh();
+
+	            });
+	        })
+
+		})
 
         function generateMesh() {
-            if (!source || !target) return;
 
-            var w = sourceTexture.image.width;
-            var h = sourceTexture.image.height;
+            if( images.some( function(i) { return i.loaded !== true } ) ) { return }
+
+            var w = images[0].image.width;
+            var h = images[0].image.height;
             var ptr = 0;
             var positions = new Float32Array(w*h*3);
             for( var y = 0; y < w; y++ ) {
@@ -223,23 +250,23 @@ void main() {
             var geometry = new THREE.BufferGeometry();
             geometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
 
-            geometry.addAttribute( 'source', new THREE.BufferAttribute( source, 2 ) );
-            geometry.addAttribute( 'target', new THREE.BufferAttribute( target, 2 ) );
+            geometry.addAttribute( 'source', new THREE.BufferAttribute( images[0].buffer, 2 ) );
+            geometry.addAttribute( 'target', new THREE.BufferAttribute( images[1].buffer, 2 ) );
 
     		var loader = new THREE.TextureLoader();
 
     		material = new THREE.RawShaderMaterial( {
     			uniforms: {
-    				sourceTex: { type: 't', value: sourceTexture },
-                    targetTex: { type: 't', value: targetTexture },
+    				sourceTex: { type: 't', value: images[0].texture },
+                    targetTex: { type: 't', value: images[1].texture },
                     blend: { type: 'f', value: 0 },
-                    dimensions: { type: 'v2', value: new THREE.Vector2(sourceTexture.image.width, sourceTexture.image.height)}
+                    dimensions: { type: 'v2', value: new THREE.Vector2(w,h)}
     			},
     			vertexShader: document.getElementById( 'particle-vs' ).textContent,
     			fragmentShader: document.getElementById( 'particle-fs' ).textContent,
     		});
 
-    		var points = new THREE.Points( geometry, material );
+    		points = new THREE.Points( geometry, material );
     		scene.add( points );
 
     		renderer.render( scene,camera );
@@ -265,7 +292,7 @@ void main() {
 		renderer.setClearColor( 0x261b1f, 1 );
 		container.appendChild( renderer.domElement );
 
-		addCommonUI(renderer.domElement);
+		addCommonUI(container);
 
 		renderer.shadowMap.enabled = true;
 		renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -292,14 +319,45 @@ void main() {
 
 	}
 
+	function changeSource( id ) {
+		material.uniforms.sourceTex.value = images[ id ].texture;
+		points.geometry.attributes.source.array = images[ id ].buffer;
+		points.geometry.attributes.source.needsUpdate = true;
+	}
+
+	function changeTarget( id ) {
+		material.uniforms.targetTex.value = images[ id ].texture;
+		points.geometry.attributes.target.array = images[ id ].buffer;
+		points.geometry.attributes.target.needsUpdate = true;
+	}
+
+	function selectImage(id){
+		if( current === 1 ) changeSource(id);
+		else changeTarget(id);
+		current = 1 - current;
+	}
+
+	var current = 0;
+	var target = 0;
+	var blendValue = 0;
+	var step = .05;
+
+	// https://gist.github.com/gre/1650294
+	function ease (t) { return t<.5 ? 8*t*t*t*t : 1-8*(--t)*t*t*t };
+
 	function animate() {
 
 		requestAnimationFrame( animate );
 
 		controls.update();
 
-        var t = .001 * ( performance.now() - startTime );
-        if (material) material.uniforms.blend.value = .5 + .5 * Math.cos(t);
+        //var t = .001 * ( performance.now() - startTime );
+        //if (material) material.uniforms.blend.value = .5 + .5 * Math.cos(t);
+        if (material) {
+        	var dir = current - blendValue;
+        	blendValue += dir / 100;
+        	material.uniforms.blend.value = ease(blendValue);
+        }
 
 		renderer.render( scene, camera );
 
