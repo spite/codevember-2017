@@ -138,10 +138,10 @@ void main() {
 	}
 
     var images = [
-        { file: '../assets/pearl.jpg' },
-        { file: '../assets/milkmaid.jpg' },
-        { file: '../assets/gioconda.jpg'  },
-        { file: '../assets/vincent.jpg'  }
+        { file: '../assets/pearl.png' },
+        { file: '../assets/milkmaid.png' },
+        { file: '../assets/gioconda.png'  },
+        { file: '../assets/vincent.png'  }
     ]
 
 	function sortPixels(img, callback) {
@@ -162,9 +162,9 @@ void main() {
 		}
 
 		rgb.sort( function( a, b ) {
-			return a.c.getHSL().h - b.c.getHSL().h
-            //return a.c.getHSL().s - b.c.getHSL().s
-			//return b.c.getHSL().s - a.c.getHSL().s
+			//return a.c.getHSL().h - b.c.getHSL().h
+            return a.c.getHSL().s - b.c.getHSL().s
+			//return b.c.getHSL().l - a.c.getHSL().l
 		})
 
 		/*var canvas = document.createElement( 'canvas' );
@@ -332,11 +332,14 @@ void main() {
 	}
 
 	function selectImage(id){
+		if (currentId===id) return;
+		currentId = id;
 		if( current === 1 ) changeSource(id);
 		else changeTarget(id);
 		current = 1 - current;
 	}
 
+	var currentId = 0;
 	var current = 0;
 	var target = 0;
 	var blendValue = 0;
