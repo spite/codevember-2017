@@ -1,4 +1,4 @@
-function ShaderTexture( renderer, shader, width, height ) {
+function ShaderTexture( renderer, shader, width, height, format, type ) {
 
 	this.renderer = renderer;
 	this.shader = shader;
@@ -7,7 +7,9 @@ function ShaderTexture( renderer, shader, width, height ) {
 		wrapS: THREE.RepeatWrapping,
 		wrapT: THREE.RepeatWrapping,
 		minFilter: THREE.LinearMipMapLinearFilter,
-		magFilter: THREE.LinearFilter
+		magFilter: THREE.LinearFilter,
+		format: format || THREE.RGBAFormat,
+		type: type || THREE.UnsignedByteType
 	} );
 	this.orthoCamera = new THREE.OrthographicCamera( width / - 2, width / 2, height / 2, height / - 2, .00001, 1000 );
 	this.orthoQuad = new THREE.Mesh( new THREE.PlaneBufferGeometry( 1, 1 ), this.shader );
