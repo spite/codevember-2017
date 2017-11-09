@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>TITLE - Codevember 2017</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
+			<h1>#. TITLE</h1>
+			<p>Lorem ipsum</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+		<script src="../js/THREE.FBOHelper.js"></script>
+		<script src="../js/Perlin.js"></script>
+		<script src="../js/Maf.js"></script>
+
+<script id="particle-vs" type="x-shader/x-vertex">
+precision highp float;
+
+attribute vec3 position;
+attribute float vertexId;
+attribute float opacity;
+attribute float size;
+attribute vec3 color;
+
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+uniform vec3 vertices[ 3 ];
+uniform vec2 uvs[ 3 ];
+uniform vec3 lightPosition;
+uniform float shadow;
+uniform sampler2D depthTexture;
+
+uniform vec2 dimensions;
+uniform float scale;
+
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vOpacity;
+
+uniform mat4 shadowMVP;
+uniform mat4 shadowV;
+uniform mat4 shadowP;
+
+const mat4 biasMatrix = mat4(
+	0.5, 0.0, 0.0, 0.0,
+	0.0, 0.5, 0.0, 0.0,
+	0.0, 0.0, 0.5, 0.0,
+	0.5, 0.5, 0.5, 1.0
+);
+
+const float PI = 3.14159265359;
+
+vec3 hsv2rgb(vec3 c) {
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+float sampleVisibility( vec3 coord ) {
+	float bias = .01;
+	float depth = texture2D( depthTexture, coord.xy ).r;
+	float visibility  = ( coord.z - depth > bias ) ? 0. : 1.;
+	return visibility;
+}
+
+void main() {
+
+	int id = int( vertexId );
+	vec3 v = vertices[ id ];
+	vec4 p = modelViewMatrix * vec4( position, 1. );
+	p.xyz += scale * v * size;
+
+	vOpacity = opacity;
+	vUv = uvs[ id ];
+	vColor = color;
+
+	const int NUM_TAPS = 12;
+
+	vec3 fTaps_Poisson[NUM_TAPS];
+	fTaps_Poisson[0]  = vec3(-.326,-.406, -.313);
+	fTaps_Poisson[1]  = vec3(-.840,-.074, .024);
+	fTaps_Poisson[2]  = vec3(-.696, .457, -.212);
+	fTaps_Poisson[3]  = vec3(-.203, .621, .437);
+	fTaps_Poisson[4]  = vec3( .962,-.195, .322);
+	fTaps_Poisson[5]  = vec3( .473,-.480, -.40);
+	fTaps_Poisson[6]  = vec3( .519, .767, -.896);
+	fTaps_Poisson[7]  = vec3( .185,-.893, -.617);
+	fTaps_Poisson[8]  = vec3( .507, .064, .768);
+	fTaps_Poisson[9]  = vec3( .896, .412, .243);
+	fTaps_Poisson[10] = vec3(-.322,-.933, -.662);
+	fTaps_Poisson[11] = vec3(-.792,-.598, -.323);
+
+	float shadow = 0.;
+	vec4 vShadowCoord = biasMatrix * shadowP * modelMatrix * shadowV * vec4(position,1.);
+	vec3 shadowCoord = vShadowCoord.xyz / vShadowCoord.w;
+
+	/*for (int i=0; i < NUM_TAPS; i++) {
+		vec3 ofs = fTaps_Poisson[i] / 200.;
+		shadow += sampleVisibility( shadowCoord + vec3( ofs ) );
+	}
+	shadow /= float( NUM_TAPS );*/
+	shadow += sampleVisibility( shadowCoord );
+
+	vColor *= vec3( .5 + .5 * shadow);
+
+	gl_Position = projectionMatrix * p;
+
+}
+
+</script>
+
+<script id="particle-fs" type="x-shader/x-vertex">
+precision highp float;
+
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vOpacity;
+varying vec3 vShadowCoord;
+
+uniform float globalOpacity;
+uniform float shadow;
+
+void main() {
+
+	vec2 barycenter = vec2( .5, .6666 );
+	float d = smoothstep( .5, .55, 1. - 2. * length( vUv - barycenter ) );
+	float a = 1. - smoothstep( .9, 1., 5. * length( vUv - barycenter ) );
+	if( d <= 0. ) discard;
+	if( shadow == 1. ) {
+		gl_FragColor = vec4( vec3( gl_FragCoord.z ), 1. );
+		return;
+	}
+
+	gl_FragColor = vec4( vColor, a * globalOpacity * vOpacity );
+
+}
+
+</script>
+
+<script>
+
+'use strict';
+
+var container, renderer, camera, controls, scene;
+var mesh;
+
+var helper;
+
+var container = document.getElementById( 'container' );
+
+var particles = [];
+var lightPosition = new THREE.Vector3( -2,2,0);
+var NUM_POINTS;
+
+var halfAngle = new THREE.Vector3();
+var tmpCamPos = new THREE.Vector3();
+var tmpLightPos = new THREE.Vector3();
+var tmpVector = new THREE.Vector3();
+var numSlices = 100;
+var meshes = [];
+var batchSize = NUM_POINTS / numSlices;
+
+function azimuth( vector ) {
+	return Math.atan2( vector.z, - vector.x );
+}
+function inclination( vector ) {
+	return Math.atan2( - vector.y, Math.sqrt( ( vector.x * vector.x ) + ( vector.z * vector.z ) ) );
+}
+function imageToLookup( img ) {
+	var texture = document.createElement( 'canvas' );
+	var ctx = texture.getContext( '2d' );
+	texture.width = img.width;
+	texture.height = img.height;
+	ctx.drawImage( img, 0, 0 );
+	var imageData = ctx.getImageData( 0, 0, texture.width, texture.height );
+	var data = imageData.data;
+	return function( uv ) {
+		var ptr = Math.floor( uv.y * texture.height ) * texture.width * 4 + Math.floor( uv.x * texture.width ) * 4;
+		return [ data[ ptr ], data[ ptr + 1 ], data[ ptr + 2 ], data[ ptr + 3 ] ];
+	}
+}
+
+function processImage( mask ) {
+	var maskLookup = imageToLookup( mask );
+	var positions = [];
+	var colors = [];
+	var sizes = [];
+	var geometry = new THREE.BufferGeometry();
+	var scale = .5;//isMobile.any ? 1 : 4;
+	var width = 400, height = 200, size = 1 / scale, aStep = .01 / scale;
+	var uv = new THREE.Vector2();
+	var vertex = new THREE.Vector3();
+	for( var a = - Math.PI / 2; a < Math.PI / 2; a += aStep ){
+		var y = .5 * height * Math.sin( a );
+		var r = .5 * height * Math.cos( a );
+		var l = 2 * Math.PI * r;
+		var size = size;
+		var steps = Math.floor( l / size );
+		var offset = ( ( width - ( Math.ceil( steps * size ) ) ) * 2 * Math.PI ) / width;
+		for( var x = 0; x < steps; x++ ) {
+			var ta = x * 2 * Math.PI / steps;
+			ta += offset;
+			vertex.set( - r * Math.cos( ta ), -y, r * Math.sin( ta ) );
+			uv.set( azimuth( vertex ) / 2 / Math.PI + 0.5, inclination( vertex ) / Math.PI + 0.5 );
+			var v = maskLookup( uv );
+			if( v[ 2 ] > 64 ) {
+				var v2 = vertex.clone().multiplyScalar( .01 + .001* v[2]/255);
+				positions.push( v2.x );
+				positions.push( v2.y );
+				positions.push( v2.z );
+				positions.push( 1 * (v[2] - 64) / (255.-64) );
+				positions.push( v[2] / 255 );
+				positions.push( v[2] / 255 );
+				positions.push( v[2] / 255 );
+				positions.push( (v[2] - 64) / (255.-64) );
+			}
+		}
+	}
+
+	return positions;
+
+}
+
+function processImageColor( mask ) {
+	var maskLookup = imageToLookup( mask );
+	var positions = [];
+	var colors = [];
+	var sizes = [];
+	var geometry = new THREE.BufferGeometry();
+	var scale = .25;//isMobile.any ? 1 : 4;
+	var width = 400, height = 200, size = 1 / scale, aStep = .01 / scale;
+	var uv = new THREE.Vector2();
+	var vertex = new THREE.Vector3();
+	for( var a = - Math.PI / 2; a < Math.PI / 2; a += aStep ){
+		var y = .5 * height * Math.sin( a );
+		var r = .5 * height * Math.cos( a );
+		var l = 2 * Math.PI * r;
+		var size = size;
+		var steps = Math.floor( l / size );
+		var offset = ( ( width - ( Math.ceil( steps * size ) ) ) * 2 * Math.PI ) / width;
+		for( var x = 0; x < steps; x++ ) {
+			var ta = x * 2 * Math.PI / steps;
+			ta += offset;
+			vertex.set( - r * Math.cos( ta ), -y, r * Math.sin( ta ) );
+			uv.set( azimuth( vertex ) / 2 / Math.PI + 0.5, inclination( vertex ) / Math.PI + 0.5 );
+			var v = maskLookup( uv );
+			var v2 = vertex.clone().multiplyScalar( .009 );
+			positions.push( v2.x );
+			positions.push( v2.y );
+			positions.push( v2.z );
+			positions.push( .6 );
+			positions.push( v[ 0 ] / 255 );
+			positions.push( v[ 1 ] / 255 );
+			positions.push( v[ 2 ] / 255 );
+			positions.push( 1 );// 2 * (v[0]+v[1]+v[2])/(3*255) );
+		}
+	}
+
+	return positions;
+
+}
+
+function loadMap( map ) {
+	return new Promise( function( resolve, reject ) {
+		var img = new Image();
+		img.addEventListener( 'load', function() {
+			resolve( this );
+		} );
+		img.src = map;
+	});
+}
+
+var particlesReady = false;
+var particleMaterial;
+var world = new THREE.Group();
+
+function initParticles(positions) {
+
+	NUM_POINTS = positions.length / 8;
+	batchSize = Math.ceil( NUM_POINTS / numSlices );
+
+	var t = new THREE.Vector4();
+	var l = 20;
+	var r = 1;
+	var t = 0;
+	for( var j = 0; j < NUM_POINTS; j ++ ) {
+		var p = new THREE.Vector4( );
+		particles.push( {
+			x: positions[j*8],
+			y: positions[j*8+1],
+			z: positions[j*8+2],
+			size: positions[j*8+3],
+			r: positions[j*8+4],
+			g: positions[j*8+5],
+			b: positions[j*8+6],
+			opacity: positions[j*8+7]
+		} );
+	}
+
+	particleMaterial = new THREE.RawShaderMaterial( {
+		uniforms:{
+			depthTexture: { type: 't', value: null },
+			shadowMVP: { type: 'm4', value: new THREE.Matrix4() },
+			shadowV: { type: 'm4', value: new THREE.Matrix4() },
+			shadowP: { type: 'm4', value: new THREE.Matrix4() },
+			shadow: { type: 'f', value: 0 },
+			lightPosition: { type: 'v3', value: lightPosition },
+			scale: { type: 'f', value: .1 },
+			globalOpacity: { type: 'f', value: 1. },
+			color: { type: 'c', value: new THREE.Color( 0x0 ) },
+			vertices: { type: 'v3v', value: [
+				new THREE.Vector3( -1, -1, 0 ),
+				new THREE.Vector3(  1, -1, 0 ),
+				new THREE.Vector3(  0,  1, 0 )
+			]},
+			uvs: { type: 'v2v', value: [
+				new THREE.Vector3( 0, 1 ),
+				new THREE.Vector3( 1, 1 ),
+				new THREE.Vector3( .5, 0 )
+			]}
+		},
+		vertexShader: document.getElementById( 'particle-vs' ).textContent,
+		fragmentShader: document.getElementById( 'particle-fs' ).textContent,
+		depthTest: true,
+		depthWrite: false,
+		transparent: true,
+	} );
+
+
+	for( var j = 0; j < numSlices; j++ ){
+
+		var geometry = new THREE.BufferGeometry();
+		geometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array( batchSize * 9 ), 3 ) );
+		geometry.addAttribute( 'vertexId', new THREE.BufferAttribute( new Float32Array( batchSize * 3 ), 1 ) );
+		geometry.addAttribute( 'opacity', new THREE.BufferAttribute( new Float32Array( batchSize * 3 ), 1 ) );
+		geometry.addAttribute( 'color', new THREE.BufferAttribute( new Float32Array( batchSize * 9 ), 3 ) );
+		geometry.addAttribute( 'size', new THREE.BufferAttribute( new Float32Array( batchSize * 3 ), 1 ) );
+
+		geometry.getAttribute( 'position' ).dynamic = true;
+		geometry.getAttribute( 'opacity' ).dynamic = true;
+		geometry.getAttribute( 'color' ).dynamic = true;
+		geometry.getAttribute( 'size' ).dynamic = true;
+
+		for( var k = 0; k < batchSize; k++ ) {
+			geometry.attributes.vertexId.array[ k * 3 + 0 ] = 0;
+			geometry.attributes.vertexId.array[ k * 3 + 1 ] = 1;
+			geometry.attributes.vertexId.array[ k * 3 + 2 ] = 2;
+		}
+		var points = new THREE.Mesh( geometry, particleMaterial );
+		world.add( points );
+		meshes.push( points );
+	}
+
+	scene.add(world);
+	particlesReady = true;
+
+}
+
+function createRenderTarget() {
+
+	return new THREE.WebGLRenderTarget( 1, 1, {
+		wrapS: THREE.ClampToEdgeWrapping,
+		wrapT: THREE.ClampToEdgeWrapping,
+		format: THREE.RGBAFormat,
+		stencilBuffer: false,
+		depthBuffer: true
+	});
+
+}
+
+var shadowBuffer;
+var shadowCamera;
+
+function initScene() {
+
+	var cloudsImg;
+	var colorImg;
+
+	Promise.all( [
+		loadMap( '../assets/map-composite.jpg' ).then( res => cloudsImg = res ),
+		loadMap( '../assets/map-color.jpg' ).then( res => colorImg = res ),
+	] ).then( _ => {
+		var p = processImage(cloudsImg);
+		p = p.concat(processImageColor(colorImg));
+		initParticles(p);
+	});
+
+
+	var light = new THREE.Mesh(
+	    new THREE.BoxBufferGeometry(.1,.1,.1),
+	    new THREE.MeshBasicMaterial()
+	);
+	light.position.copy( lightPosition );
+	scene.add( light );
+
+	var s = 2;
+	shadowCamera = new THREE.OrthographicCamera( -s, s, s, -s, 0, 2 );
+	shadowCamera.position.set( 2.4, 4, 0 );
+	shadowCamera.lookAt( scene.position );
+
+	shadowBuffer = createRenderTarget();
+	shadowBuffer.setSize( 256, 256 );
+
+	helper.attach( shadowBuffer, 'shadow' );
+
+}
+
+function noiseFunc0( v ){
+
+	var s  = noise.simplex3( v.x, v.y, v.z );
+	var s1 = noise.simplex3( v.y - 19.1, v.z + 33.4, v.x + 47.2 );
+	var s2 = noise.simplex3( v.z + 74.2, v.x - 124.5, v.y + 99.4 );
+	return new THREE.Vector3( s , s1 , s2 );
+
+}
+
+function generateNoiseFunction() {
+
+	var a = Maf.randomInRange( -100, 100 );
+	var b = Maf.randomInRange( -100, 100 );
+	var c = Maf.randomInRange( -100, 100 );
+
+	var d = Maf.randomInRange( -100, 100 );
+	var e = Maf.randomInRange( -100, 100 );
+	var f = Maf.randomInRange( -100, 100 );
+
+	return function( v, t ) {
+
+		var s  = noise.simplex3( v.x + t, v.y, v.z );
+		var s1 = noise.simplex3( v.y + a, v.z + b + t, v.x + c );
+		var s2 = noise.simplex3( v.z + c, v.x + d + t, v.y + f );
+		return new THREE.Vector3( s , s1 , s2 );
+
+	}
+
+}
+
+var noiseFunc = generateNoiseFunction();
+
+function init() {
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 0, 0, 4.3 );
+	camera.lookAt( camera.target );
+	scene.add( camera );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0,1);
+	container.appendChild( renderer.domElement );
+
+	helper = new FBOHelper(renderer);
+
+	addCommonUI(renderer.domElement);
+
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+	renderer.sortObjects = false;
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	initScene();
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+	helper.setSize(w,h);
+
+}
+
+var dot = function() {
+
+	var tmpVector = new THREE.Vector3();
+
+	return function( a, b ) {
+		tmpVector.copy( a );
+		return tmpVector.dot( b );
+	}
+
+}();
+
+var renderOrder;
+
+function sortParticles() {
+
+	tmpCamPos.copy( camera.position ).normalize();
+	tmpLightPos.copy( lightPosition ).normalize();
+
+	renderOrder = 0;
+	if( dot( tmpCamPos, tmpLightPos ) > 0 ) {
+		renderOrder = 0;
+		halfAngle.copy( tmpCamPos ).add( tmpLightPos ).normalize();
+	} else {
+		renderOrder = 1;
+		halfAngle.copy( tmpCamPos ).multiplyScalar( -1 ).add( tmpLightPos ).normalize();
+	}
+
+	var sorted = [];
+	particles.forEach( function( p, id ) {
+		tmpVector.copy( p );
+		tmpVector.applyMatrix4( world.matrix );
+		var d = dot( tmpVector, halfAngle );
+		sorted.push( { id: id, dot: d } );
+	})
+
+	sorted.sort( function( a,b ) {
+		return a.dot - b.dot;
+	})
+
+	var geometry;
+	var v;
+	var ptr;
+	var ptr2;
+	for( var j = 0; j < numSlices; j++ ) {
+		geometry = meshes[ j ].geometry;
+		for( var k = 0; k < batchSize; k++ ) {
+			ptr = j * batchSize + k;
+			if( ptr < sorted.length ) {
+				if( renderOrder === 0 ) ptr2 = sorted[ ptr ].id;
+				else ptr2 = sorted[ sorted.length - 1 - ptr ].id;
+				v = particles[ ptr2 ];
+				geometry.attributes.position.array[ k * 9 + 0 ] = v.x;
+				geometry.attributes.position.array[ k * 9 + 1 ] = v.y;
+				geometry.attributes.position.array[ k * 9 + 2 ] = v.z;
+
+				geometry.attributes.position.array[ k * 9 + 3 ] = v.x;
+				geometry.attributes.position.array[ k * 9 + 4 ] = v.y;
+				geometry.attributes.position.array[ k * 9 + 5 ] = v.z;
+
+				geometry.attributes.position.array[ k * 9 + 6 ] = v.x;
+				geometry.attributes.position.array[ k * 9 + 7 ] = v.y;
+				geometry.attributes.position.array[ k * 9 + 8 ] = v.z;
+
+				geometry.attributes.size.array[ k * 3 + 0 ] = v.size;
+				geometry.attributes.size.array[ k * 3 + 1 ] = v.size;
+				geometry.attributes.size.array[ k * 3 + 2 ] = v.size;
+
+				geometry.attributes.opacity.array[ k * 3 + 0 ] = v.opacity;
+				geometry.attributes.opacity.array[ k * 3 + 1 ] = v.opacity;
+				geometry.attributes.opacity.array[ k * 3 + 2 ] = v.opacity;
+
+				geometry.attributes.color.array[ k * 9 + 0 ] = v.r;
+				geometry.attributes.color.array[ k * 9 + 1 ] = v.g;
+				geometry.attributes.color.array[ k * 9 + 2 ] = v.b;
+
+				geometry.attributes.color.array[ k * 9 + 3 ] = v.r;
+				geometry.attributes.color.array[ k * 9 + 4 ] = v.g;
+				geometry.attributes.color.array[ k * 9 + 5 ] = v.b;
+
+				geometry.attributes.color.array[ k * 9 + 6 ] = v.r;
+				geometry.attributes.color.array[ k * 9 + 7 ] = v.g;
+				geometry.attributes.color.array[ k * 9 + 8 ] = v.b;
+			}
+		}
+		geometry.attributes.position.needsUpdate = true;
+		geometry.attributes.opacity.needsUpdate = true;
+		geometry.attributes.color.needsUpdate = true;
+		geometry.attributes.size.needsUpdate = true;
+	}
+
+}
+
+var tmpMatrix = new THREE.Matrix4();
+var tmpVector = new THREE.Vector3();
+
+function animate() {
+
+	requestAnimationFrame( animate );
+
+	controls.update();
+
+	if (particlesReady) {
+
+		sortParticles();
+
+		shadowCamera.position.copy( tmpLightPos );
+		shadowCamera.lookAt( scene.position );
+
+		renderer.clear(true,true,true);
+		renderer.clearTarget(shadowBuffer,true,true,true);
+		renderer.autoClear = false;
+		for( var j = 0; j < .5 * meshes.length; j++ ) {
+			meshes.forEach( function(m) {
+				m.visible = false;
+			})
+
+			meshes[ j ].visible = true;
+
+			particleMaterial.uniforms.depthTexture.value = shadowBuffer.texture;
+			particleMaterial.uniforms.shadow.value = false;
+			particleMaterial.depthWrite = false;
+
+			tmpVector.copy( scene.position );
+			tmpVector.sub( shadowCamera.position );
+			tmpVector.normalize();
+			tmpMatrix.copy( shadowCamera.projectionMatrix );
+			tmpMatrix.multiply( world.matrixWorld );
+			tmpMatrix.multiply( shadowCamera.matrixWorldInverse);
+			particleMaterial.uniforms.shadowMVP.value.copy( tmpMatrix );
+			particleMaterial.uniforms.shadowP.value.copy( shadowCamera.projectionMatrix );
+			particleMaterial.uniforms.shadowV.value.copy( shadowCamera.matrixWorldInverse );
+
+			renderer.render( scene, camera );
+
+			particleMaterial.uniforms.depthTexture.value = null;
+			particleMaterial.uniforms.shadow.value = true;
+			particleMaterial.depthWrite = true;
+			renderer.render( scene, shadowCamera, shadowBuffer );
+		}
+
+	}
+	helper.update();
+
+}
+
+window.addEventListener( 'load', init );
+
+</script>
+
+	</body>
+</html>
