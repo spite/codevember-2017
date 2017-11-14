@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 	<head>
-		<title>TITLE - Codevember 2017</title>
+		<title>Holomap - Codevember 2017</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 
@@ -14,14 +14,21 @@
 		<div id="container"></div>
 		<div id="info" >
 			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
-			<h1>#. TITLE</h1>
-			<p>Lorem ipsum</p>
+			<h1>9. Holomap</h1>
+			<p>A holographic display of the future, where we can project pixels on thin air, but they're still low res.</p>
+			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out.</p>
+			<p>Open <b>Controls</b> to play with the settings!</p>
 			<p id="moreDetails"><b>More details...</b></p>
 		</div>
 		<div id="details" class="hidden">
 			<div class="content" >
 				<h1>Details</h1>
-				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<p>A holographic display of the future, where we can project pixels on thin air, but they're still low res.</p>
+				<p>The display is made of 16 planes, each textured with the same noise map, but discarding at different heights. Color is based on height and layer, and shadow is added by comparing the noise value and the height of the layer on top of the current one. Sampling of the noise texture is done with rounding and modulo to simulate a grid of pixels.</p>
+				<p>Bloom is added by blurring the color buffer twice in two separable 5-tap blur, and resampled in the final shader. Also added RGB shift, vignette and level and gamma adjustment.</p>
+				<p>Based on <a href="https://www.instagram.com/p/BbcPmLsDeeq/?hl=en&taken-by=motiondesigners" >this image</a>.</p>
+				<p>Built with <a href="threejs.org">three.js</a>, <a href="https://github.com/ashima/webgl-noise" >Ashima WebGL noise functions</a> and <a href="https://workshop.chromeexperiments.com/examples/gui/#1--Basic-Usage" >dat.gui</a>.</p>
+				<p>Code available on <a href="https://github.com/spite/codevember-2017/blob/master/holomap/index.html" >GitHub</a>.</p>
 				<a href="#" id="close-details">Close</a>
 			</div>
 		</div>
@@ -32,6 +39,7 @@
 		<script src="../js/Maf.js"></script>
 		<script src="../js/THREE.ShaderTexture.js"></script>
 		<script src="../js/THREE.FBOHelper.js"></script>
+		<script src="../js/dat.gui.min.js"></script>
 
 <script type="x-shader/x-vertex" id="ortho-vs" >
 precision highp float;
@@ -359,6 +367,8 @@ var blurShader, hBlurTexture, vBlurTexture, hBlurTexture2, vBlurTexture2;
 var finalShader, finalTexture;
 var resolution = new THREE.Vector2();
 
+var holoMaterial;
+
 function createFBO() {
 
 	return new THREE.WebGLRenderTarget( 1, 1, {
@@ -432,7 +442,7 @@ function initScene() {
 
 	scene.add(plane);
 
-	var holoMaterial = new THREE.RawShaderMaterial({
+	holoMaterial = new THREE.RawShaderMaterial({
 		uniforms:{
 			repeat: { type: 'v2', value: new THREE.Vector2(20,20) },
 			top: { type: 'c', value: new THREE.Color(0xb9e6ff)},
@@ -560,6 +570,13 @@ function initScene() {
 
 }
 
+var Params = function() {
+  this.opacity = .3;
+  this.transparent = true;
+  this.additive = true;
+};
+var params = new Params();
+
 function init() {
 
 	container = document.getElementById( 'container' );
@@ -578,6 +595,7 @@ function init() {
 	container.appendChild( renderer.domElement );
 
 	helper = new FBOHelper( renderer );
+	helper.show(false);
 
 	addCommonUI(renderer.domElement);
 
@@ -590,6 +608,19 @@ function init() {
 	onWindowResized();
 
 	window.addEventListener( 'resize', onWindowResized );
+
+	var gui = new dat.GUI();
+	gui.add(params, 'opacity', .1, 1. ).listen();
+	gui.add(params, 'transparent' ).listen();
+	gui.add(params, 'additive' ).listen();
+	/*gui.add(params, 'taper', 0., 1. ).listen();
+	gui.add(params, 'opacity', 0, 1 ).listen();
+	gui.add(params, 'dimFar', 0, 2000 ).listen();
+	gui.add(params, 'range', 0, NUM_POINTS).listen();
+	gui.add(params, 'colorise').listen();
+	gui.add(params, 'wireframe').listen();*/
+
+	gui.close();
 
 	animate();
 
@@ -632,6 +663,10 @@ function animate() {
 	requestAnimationFrame( animate );
 
 	controls.update();
+
+	holoMaterial.uniforms.opacity.value = params.opacity;
+	holoMaterial.transparent = params.transparent;
+	holoMaterial.blending = params.additive?THREE.AdditiveBlending:THREE.NormalBlending;
 
 	terrainTexture.shader.uniforms.time.value = .001 * performance.now();
 	terrainTexture.render();
