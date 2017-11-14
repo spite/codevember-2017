@@ -1,4 +1,4 @@
-function PingPongTexture( renderer, shader, width, height ) {
+function PingPongTexture( renderer, shader, width, height, format, type ) {
 
 	this.renderer = renderer;
 	this.shader = shader;
@@ -6,8 +6,10 @@ function PingPongTexture( renderer, shader, width, height ) {
 	var fbo = new THREE.WebGLRenderTarget( width, height, {
 		wrapS: THREE.RepeatWrapping,
 		wrapT: THREE.RepeatWrapping,
-		minFilter: THREE.LinearMipMapLinearFilter,
-		magFilter: THREE.LinearFilter
+		minFilter: THREE.NearestFilter,
+		magFilter: THREE.NearestFilter,
+		format: format || THREE.RGBAFormat,
+		type: type || THREE.UnsignedByte
 	} );
 	this.target = 0;
 	this.targets = [ fbo, fbo.clone() ];
@@ -26,7 +28,7 @@ PingPongTexture.prototype.render = function() {
 
 	this.target = 1 - this.target;
 	this.front = this.targets[ this.target ];
-	this.back = this.targets[ this.target ];
+	this.back = this.targets[ 1 - this.target ];
 
 	this.renderer.render( this.orthoScene, this.orthoCamera, this.front );
 
