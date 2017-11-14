@@ -1,13 +1,13 @@
-function ShaderTexture( renderer, shader, width, height, format, type ) {
+function ShaderTexture( renderer, shader, width, height, format, type, minFilter, magFilter, wrapS, wrapT ) {
 
 	this.renderer = renderer;
 	this.shader = shader;
 	this.orthoScene = new THREE.Scene();
 	this.fbo = new THREE.WebGLRenderTarget( width, height, {
-		wrapS: THREE.RepeatWrapping,
-		wrapT: THREE.RepeatWrapping,
-		minFilter: THREE.LinearMipMapLinearFilter,
-		magFilter: THREE.LinearFilter,
+		wrapS: wrapS || THREE.RepeatWrapping,
+		wrapT: wrapT || THREE.RepeatWrapping,
+		minFilter: minFilter || THREE.LinearMipMapLinearFilter,
+		magFilter: magFilter || THREE.LinearFilter,
 		format: format || THREE.RGBAFormat,
 		type: type || THREE.UnsignedByteType
 	} );

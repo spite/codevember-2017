@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>TITLE - Codevember 2017</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
+			<h1>#. TITLE</h1>
+			<p>Lorem ipsum</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+		<script src="../js/Maf.js"></script>
+		<script src="../js/THREE.ShaderTexture.js"></script>
+		<script src="../js/THREE.FBOHelper.js"></script>
+
+<script type="x-shader/x-vertex" id="ortho-vs" >
+precision highp float;
+attribute vec3 position;
+attribute vec2 uv;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+varying vec2 vUv;
+void main() {
+	vUv = uv;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1. );
+}
+</script>
+
+<script type="x-shader/x-vertex" id="plane-vs" >
+precision highp float;
+
+attribute vec3 position;
+attribute vec2 uv;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+uniform vec2 repeat;
+
+varying vec2 vUv;
+
+void main() {
+
+	vUv = uv * repeat;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1. );
+
+}
+</script>
+
+<script type="x-shader/x-fragment" id="plane-fs" >
+precision highp float;
+
+uniform sampler2D texture;
+uniform vec3 color;
+uniform float opacity;
+
+varying vec2 vUv;
+
+void main() {
+	vec4 t = texture2D( texture, vUv );
+	gl_FragColor = vec4( color, t.r * opacity );
+}
+</script>
+
+<script type="x-shader/x-vertex" id="holo-vs" >
+precision highp float;
+
+attribute vec3 position;
+attribute vec2 uv;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+varying vec2 vUv;
+varying float vHeight;
+
+void main() {
+
+	vUv = uv;
+	vHeight = position.y / 0.15;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1. );
+
+}
+</script>
+
+<script type="x-shader/x-fragment" id="holo-fs" >
+precision highp float;
+
+uniform vec3 top;
+uniform vec3 bottom;
+uniform float opacity;
+uniform sampler2D texture;
+uniform vec2 repeat;
+
+varying vec2 vUv;
+varying float vHeight;
+
+void main() {
+	vec2 tuv = vUv * repeat * 64.;
+	if( mod( floor(tuv.x), 4.) == 0. ) discard;
+	if( mod( floor(tuv.y), 4.) == 0. ) discard;
+
+	vec2 luv = vUv;
+	float n = texture2D(texture, luv).r;
+	if( n < vHeight ) discard;
+	vec3 color = mix(bottom, top, vHeight );
+
+	if( vHeight < .999 && n > vHeight + 1. / 16. ) color *= .75;
+	float d = 1. - .5 * length( vec2(.5)-vUv);
+	color *= d;
+
+	gl_FragColor = vec4( color, ( .5 + .5 * vHeight ) * opacity * d );
+}
+</script>
+
+<script id="terrain-fs" type="x-shader/x-fragment">
+precision highp float;
+
+uniform float time;
+
+varying vec2 vUv;
+
+vec3 mod289(vec3 x) {
+  return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+vec2 mod289(vec2 x) {
+  return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+vec3 permute(vec3 x) {
+  return mod289(((x*34.0)+1.0)*x);
+}
+
+float snoise(vec2 v)
+  {
+  const vec4 C = vec4(0.211324865405187,  // (3.0-sqrt(3.0))/6.0
+                      0.366025403784439,  // 0.5*(sqrt(3.0)-1.0)
+                     -0.577350269189626,  // -1.0 + 2.0 * C.x
+                      0.024390243902439); // 1.0 / 41.0
+// First corner
+  vec2 i  = floor(v + dot(v, C.yy) );
+  vec2 x0 = v -   i + dot(i, C.xx);
+
+// Other corners
+  vec2 i1;
+  //i1.x = step( x0.y, x0.x ); // x0.x > x0.y ? 1.0 : 0.0
+  //i1.y = 1.0 - i1.x;
+  i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+  // x0 = x0 - 0.0 + 0.0 * C.xx ;
+  // x1 = x0 - i1 + 1.0 * C.xx ;
+  // x2 = x0 - 1.0 + 2.0 * C.xx ;
+  vec4 x12 = x0.xyxy + C.xxzz;
+  x12.xy -= i1;
+
+// Permutations
+  i = mod289(i); // Avoid truncation effects in permutation
+  vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 ))
+		+ i.x + vec3(0.0, i1.x, 1.0 ));
+
+  vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+  m = m*m ;
+  m = m*m ;
+
+// Gradients: 41 points uniformly over a line, mapped onto a diamond.
+// The ring size 17*17 = 289 is close to a multiple of 41 (41*7 = 287)
+
+  vec3 x = 2.0 * fract(p * C.www) - 1.0;
+  vec3 h = abs(x) - 0.5;
+  vec3 ox = floor(x + 0.5);
+  vec3 a0 = x - ox;
+
+// Normalise gradients implicitly by scaling m
+// Approximation of: m *= inversesqrt( a0*a0 + h*h );
+  m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+
+// Compute final noise value at P
+  vec3 g;
+  g.x  = a0.x  * x0.x  + h.x  * x0.y;
+  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+  return 130.0 * dot(m, g);
+}
+
+float squareTurbulence(float v) {
+	return pow(v,2.);
+}
+
+float ridgedTurbulence(float v) {
+	return 1. - abs(v);
+}
+
+float fbm(vec2 uv) {
+	float value = 0.;
+	float amplitude = 1.;
+	for (int i = 0; i < 8; i++) {
+	    value += amplitude * abs(snoise(uv));
+	    uv *= 2.;
+	    amplitude *= .5;
+	}
+	return value;
+}
+
+void main() {
+
+	vec2 uv = vUv;
+	uv.x += .23534 + .1 * time;
+	uv.x = snoise(uv.xy);
+	uv.y += .05 * time;
+	uv.y += fbm(.5 * uv.yx);
+    float n = ridgedTurbulence(fbm(1.*uv));
+    n += 1. * snoise( 2. * vUv );
+    n *= .5;
+    n += .5;
+
+    gl_FragColor = vec4(n, 0., 0., 1.);
+
+}
+</script>
+
+<script id="blur-fs" type="x-shader/x-fragment">
+precision highp float;
+
+uniform vec2 resolution;
+uniform sampler2D source;
+uniform vec2 delta;
+
+varying vec2 vUv;
+
+vec4 blur5(sampler2D image, vec2 uv, vec2 resolution, vec2 direction) {
+  vec4 color = vec4(0.0);
+  vec2 off1 = vec2(1.3333333333333333) * direction;
+  color += texture2D(image, uv) * 0.29411764705882354;
+  color += texture2D(image, uv + (off1 / resolution)) * 0.35294117647058826;
+  color += texture2D(image, uv - (off1 / resolution)) * 0.35294117647058826;
+  return color;
+}
+
+vec4 blur13(sampler2D image, vec2 uv, vec2 resolution, vec2 direction) {
+  vec4 color = vec4(0.0);
+  vec2 off1 = vec2(1.411764705882353) * direction;
+  vec2 off2 = vec2(3.2941176470588234) * direction;
+  vec2 off3 = vec2(5.176470588235294) * direction;
+  color += texture2D(image, uv) * 0.1964825501511404;
+  color += texture2D(image, uv + (off1 / resolution)) * 0.2969069646728344;
+  color += texture2D(image, uv - (off1 / resolution)) * 0.2969069646728344;
+  color += texture2D(image, uv + (off2 / resolution)) * 0.09447039785044732;
+  color += texture2D(image, uv - (off2 / resolution)) * 0.09447039785044732;
+  color += texture2D(image, uv + (off3 / resolution)) * 0.010381362401148057;
+  color += texture2D(image, uv - (off3 / resolution)) * 0.010381362401148057;
+  return color;
+}
+
+
+void main() {
+	vec4 b  = blur5( source, vUv, resolution, delta );
+	/*b += blur5( source, vUv, resolution, 2. * delta );
+	b += blur5( source, vUv, resolution, 4. * delta );
+	b /= 3.;*/
+	gl_FragColor = b;
+}
+</script>
+
+<script id="final-fs" type="x-shader/x-fragment">
+precision highp float;
+
+uniform sampler2D base;
+uniform sampler2D blur;
+uniform sampler2D blur2;
+
+uniform float boost;
+uniform float reduction;
+uniform vec2 resolution;
+
+varying vec2 vUv;
+
+float blendScreen(float base, float blend) {
+	return 1.0-((1.0-base)*(1.0-blend));
+}
+
+vec3 blendScreen(vec3 base, vec3 blend) {
+	return vec3(blendScreen(base.r,blend.r),blendScreen(base.g,blend.g),blendScreen(base.b,blend.b));
+}
+
+vec3 blendScreen(vec3 base, vec3 blend, float opacity) {
+	return (blendScreen(base, blend) * opacity + base * (1.0 - opacity));
+}
+
+float random(vec2 n, float offset ){
+	return .5 - fract(sin(dot(n.xy + vec2( offset, 0. ), vec2(12.9898, 78.233)))* 43758.5453);
+}
+
+vec3 gammaCorrect(vec3 color, float gamma){
+    return pow(color, vec3(1.0/gamma));
+}
+
+vec3 levelRange(vec3 color, float minInput, float maxInput){
+    return min(max(color - vec3(minInput), vec3(0.0)) / (vec3(maxInput) - vec3(minInput)), vec3(1.0));
+}
+
+vec3 finalLevels(vec3 color, float minInput, float gamma, float maxInput){
+    return gammaCorrect(levelRange(color, minInput, maxInput), gamma);
+}
+
+void main() {
+	vec2 inc = 8. / resolution;
+	float ar = texture2D( base, vUv - vec2(inc.x,0.) ).r;
+	float ag = texture2D( base, vUv ).g;
+	float ab = texture2D( base, vUv + vec2(inc.x,0.) ).b;
+	vec3 a = vec3(ar,ag,ab);
+	vec3 b = mix(texture2D( blur, vUv, 4. ).rgb, texture2D( blur2, vUv, 4. ).rgb,.5);
+	vec3 color = blendScreen( a, b, 1. );
+
+	vec2 position = ( gl_FragCoord.xy / resolution ) - .5;
+	float vignette = length( position );
+    vignette = boost - vignette * reduction;
+
+    color.rgb *= vignette;
+
+    color.rgb = finalLevels( color.rgb, 8./255., .81, 224./255.);
+
+	gl_FragColor = vec4( color.rgb, 1. );
+}
+</script>
+
+<script>
+
+'use strict';
+
+var container, renderer, camera, controls, scene;
+var mesh;
+
+var helper;
+
+var container = document.getElementById( 'container' );
+
+var terrainTexture;
+var baseFBO;
+var blurShader, hBlurTexture, vBlurTexture, hBlurTexture2, vBlurTexture2;
+var finalShader, finalTexture;
+var resolution = new THREE.Vector2();
+
+function createFBO() {
+
+	return new THREE.WebGLRenderTarget( 1, 1, {
+		wrapS: THREE.ClampToEdgeWrapping,
+		wrapT: THREE.ClampToEdgeWrapping,
+		format: THREE.RGBAFormat,
+		stencilBuffer: false,
+		depthBuffer: false
+	});
+
+}
+
+function initScene() {
+
+	var terrainShader = new THREE.RawShaderMaterial( {
+		uniforms: {
+			time: { type: 'f', value: 0 }
+		},
+		vertexShader: document.getElementById('ortho-vs').textContent,
+		fragmentShader: document.getElementById('terrain-fs').textContent,
+	} );
+
+	terrainTexture = new ShaderTexture( renderer, terrainShader, 320, 320, THREE.RGBAFormat, THREE.FloatType, THREE.NearestFilter, THREE.NearestFilter );
+	helper.attach( terrainTexture.fbo, 'terrain' );
+	terrainTexture.render();
+
+	var canvas = document.createElement('canvas');
+	var ctx = canvas.getContext('2d');
+	canvas.width = 32;
+	canvas.height = 32;
+
+	ctx.fillStyle = '#444'
+	for( var y = 0; y < 32; y += 2 ) {
+		for( var x = 0; x < 32; x += 2 ) {
+			ctx.fillRect(x,y,1,1);
+		}
+	}
+	ctx.fillStyle = '#aaa'
+	for( var y = 0; y < 32; y += 2 ) {
+		ctx.fillRect( 16,y,1,1)
+	}
+	for( var x = 0; x < 32; x += 2 ) {
+		ctx.fillRect( x,16,1,1)
+	}
+	ctx.fillStyle = '#ffffff'
+	ctx.fillRect( 15,15,3,3);
+
+	var planeTexture = new THREE.CanvasTexture(canvas);
+	planeTexture.wrapS = planeTexture.wrapT = THREE.RepeatWrapping;
+	planeTexture.minFilter = planeTexture.magFilter = THREE.NearestFilter;
+
+	var planeMaterial = new THREE.RawShaderMaterial({
+		uniforms:{
+			repeat: { type: 'v2', value: new THREE.Vector2(28,28) },
+			texture: { type: 't', value: planeTexture },
+			color: { type: 'c', value: new THREE.Color(0x707684)},
+			opacity: { type: 'f', value: .5 }
+		},
+		vertexShader: document.getElementById( 'plane-vs' ).textContent,
+		fragmentShader: document.getElementById( 'plane-fs' ).textContent,
+		transparent: true
+	});
+
+	var planeGeometry = new THREE.PlaneBufferGeometry( 14, 14, 1, 1 );
+	planeGeometry.applyMatrix( new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+
+	var plane = new THREE.Mesh(
+	    planeGeometry,
+		planeMaterial
+	);
+
+	scene.add(plane);
+
+	var holoMaterial = new THREE.RawShaderMaterial({
+		uniforms:{
+			repeat: { type: 'v2', value: new THREE.Vector2(20,20) },
+			top: { type: 'c', value: new THREE.Color(0xb9e6ff)},
+			bottom: { type: 'c', value: new THREE.Color(0x1b2643)},
+			opacity: { type: 'f', value: 8 / 16 },
+			texture: { type: 't', value: terrainTexture.fbo.texture }
+		},
+		vertexShader: document.getElementById( 'holo-vs' ).textContent,
+		fragmentShader: document.getElementById( 'holo-fs' ).textContent,
+		transparent: true,
+		side: THREE.DoubleSide,
+		blending: THREE.AdditiveBlending
+	});
+
+	var holoGeometry = new THREE.BufferGeometry();
+	var positions = new Float32Array( 16 * 6 * 3 );
+	var uvs = new Float32Array( 16 * 6 * 2 );
+
+	var ptr = 0;
+	var ptr2 = 0;
+	for( var j = 0; j < 16; j++ ) {
+
+		var py = .01 * j;
+		var ox = .01 * (.5 - Math.random());
+		var oz = .01 * (.5 - Math.random());
+
+		positions[ ptr ] = -.5 + ox;
+		positions[ ptr + 1 ] = py;
+		positions[ ptr + 2 ] = -.5 + oz;
+
+		positions[ ptr + 3 ] = .5+ ox;
+		positions[ ptr + 4 ] = py;
+		positions[ ptr + 5 ] = -.5 + oz;
+
+		positions[ ptr + 6 ] = -.5+ ox;
+		positions[ ptr + 7 ] = py;
+		positions[ ptr + 8 ] = .5 + oz;
+
+		positions[ ptr + 9 ] = .5+ ox;
+		positions[ ptr + 10 ] = py;
+		positions[ ptr + 11 ] = -.5 + oz;
+
+		positions[ ptr + 12 ] = .5+ ox;
+		positions[ ptr + 13 ] = py;
+		positions[ ptr + 14 ] = .5 + oz;
+
+		positions[ ptr + 15 ] = -.5+ ox;
+		positions[ ptr + 16 ] = py;
+		positions[ ptr + 17 ] = .5 + oz;
+
+		uvs[ ptr2 + 0 ] = 0.;
+		uvs[ ptr2 + 1 ] = 0.;
+
+		uvs[ ptr2 + 2 ] = 1.;
+		uvs[ ptr2 + 3 ] = 0.;
+
+		uvs[ ptr2 + 4 ] = 0.;
+		uvs[ ptr2 + 5 ] = 1.;
+
+		uvs[ ptr2 + 6 ] = 1.;
+		uvs[ ptr2 + 7 ] = 0.;
+
+		uvs[ ptr2 + 8 ] = 1.;
+		uvs[ ptr2 + 9 ] = 1.;
+
+		uvs[ ptr2 + 10 ] = 0.;
+		uvs[ ptr2 + 11 ] = 1.;
+
+		ptr += 18;
+		ptr2 += 12;
+
+	}
+
+	holoGeometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+	holoGeometry.addAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ) );
+
+	var plane = new THREE.Mesh(
+	    holoGeometry,
+		holoMaterial
+	);
+	plane.scale.set(10,10,10);
+
+	plane.position.y = .1;
+	scene.add(plane);
+
+	baseFBO = createFBO();
+
+	blurShader = new THREE.RawShaderMaterial( {
+		uniforms: {
+			source: { type: 't', value: baseFBO.texture },
+			resolution: { type: 'v2', value: new THREE.Vector2() },
+			delta: { type: 'v2', value: new THREE.Vector2( 0, 1 )}
+		},
+		vertexShader: document.getElementById('ortho-vs').textContent,
+		fragmentShader: document.getElementById('blur-fs').textContent,
+	} );
+
+	hBlurTexture = new ShaderTexture( renderer, blurShader, 1, 1, null, null, null, null, THREE.ClampToEdgeWrapping, THREE.ClampToEdgeWrapping );
+	helper.attach( hBlurTexture.fbo, 'hblur' );
+
+	vBlurTexture = new ShaderTexture( renderer, blurShader, 1, 1, null, null, null, null, THREE.ClampToEdgeWrapping, THREE.ClampToEdgeWrapping );
+	helper.attach( vBlurTexture.fbo, 'vblur' );
+
+	hBlurTexture2 = new ShaderTexture( renderer, blurShader, 1, 1, null, null, null, null, THREE.ClampToEdgeWrapping, THREE.ClampToEdgeWrapping );
+	helper.attach( hBlurTexture2.fbo, 'hblur2' );
+
+	vBlurTexture2 = new ShaderTexture( renderer, blurShader, 1, 1, null, null, null, null, THREE.ClampToEdgeWrapping, THREE.ClampToEdgeWrapping );
+	helper.attach( vBlurTexture2.fbo, 'vblur2' );
+
+	helper.attach( baseFBO, 'base' );
+
+	finalShader = new THREE.RawShaderMaterial( {
+		uniforms: {
+			base: { type: 't', value: baseFBO.texture },
+			blur: { type: 't', value: vBlurTexture.fbo.texture },
+			blur2: { type: 't', value: vBlurTexture2.fbo.texture },
+			boost: { type: 'f', value: 1.1 },
+			reduction: { type: 'f', value: 1.1 },
+			resolution: { type: 'v2', value: resolution },
+		},
+		vertexShader: document.getElementById('ortho-vs').textContent,
+		fragmentShader: document.getElementById('final-fs').textContent,
+	} );
+	finalTexture = new ShaderTexture( renderer, finalShader, 1, 1 );
+
+}
+
+function init() {
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 2.5, 6, 4 );
+	camera.lookAt( camera.target );
+	scene.add( camera );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0, 1 );
+	container.appendChild( renderer.domElement );
+
+	helper = new FBOHelper( renderer );
+
+	addCommonUI(renderer.domElement);
+
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	initScene();
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+	var dPR = window.devicePixelRatio;
+
+	resolution.set(w*dPR,h*dPR);
+	baseFBO.setSize( w*dPR, h*dPR );
+	finalTexture.setSize( w * dPR,h * dPR );
+
+	var bw = Maf.nextPowerOfTwo( w * dPR ) / 8;
+	var bh = Maf.nextPowerOfTwo( h * dPR ) / 8;
+	hBlurTexture.setSize( bw, bh );
+	vBlurTexture.setSize( bw, bh );
+	hBlurTexture2.setSize( .5 * bw, .5 * bh );
+	vBlurTexture2.setSize( .5 * bw, .5 * bh );
+	blurShader.uniforms.resolution.value.set( bw, bh );
+
+	helper.refreshFBO( baseFBO );
+	helper.refreshFBO( hBlurTexture.fbo );
+	helper.refreshFBO( vBlurTexture.fbo );
+	helper.refreshFBO( hBlurTexture2.fbo );
+	helper.refreshFBO( vBlurTexture2.fbo );
+
+	helper.setSize( w,h );
+}
+
+function animate() {
+
+	requestAnimationFrame( animate );
+
+	controls.update();
+
+	terrainTexture.shader.uniforms.time.value = .001 * performance.now();
+	terrainTexture.render();
+
+	renderer.render( scene, camera, baseFBO );
+
+	var s = 8;
+
+	blurShader.uniforms.source.value = baseFBO.texture;
+	blurShader.uniforms.delta.value.set(0,s);
+	hBlurTexture.render();
+	blurShader.uniforms.source.value = hBlurTexture.fbo.texture;
+	blurShader.uniforms.delta.value.set(s,0);
+	vBlurTexture.render();
+
+	blurShader.uniforms.source.value = vBlurTexture.texture;
+	blurShader.uniforms.delta.value.set(0,s);
+	hBlurTexture2.render();
+	blurShader.uniforms.source.value = hBlurTexture2.fbo.texture;
+	blurShader.uniforms.delta.value.set(s,0);
+	vBlurTexture2.render();
+
+	finalTexture.render( true );
+
+	helper.update();
+}
+
+window.addEventListener( 'load', init );
+
+</script>
+
+	</body>
+</html>
