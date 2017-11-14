@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 	<head>
-		<title>TITLE - Codevember 2017</title>
+		<title>Whirly Bonfire - Codevember 2017</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 
@@ -13,15 +13,38 @@
 
 		<div id="container"></div>
 		<div id="info" >
-			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
-			<h1>#. TITLE</h1>
-			<p>Lorem ipsum</p>
+			<p><a href="../chromeography" >Previous</a> <!--| <a href="../n" >Next</a>--></p>
+			<h1>8. Whirly Bonfire</h1>
+			<p>A digital whirlwind of sparky particles.</p>
+			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out. Press <b>Space</b> to stop the simulation and freeze the particles.</p>
+			<p>Open <b>Controls</b> to play with the settings!</p>
 			<p id="moreDetails"><b>More details...</b></p>
 		</div>
 		<div id="details" class="hidden">
 			<div class="content" >
-				<h1>Details</h1>
-				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<h1>Whirly Bonfire</h1>
+				<p>A digital whirlwind of sparky particles.</p>
+				<p>Each particle is made of 4 triangles, two for the streak body and two for the caps. The triangles are aligned along the motion vector and billboarded on screen space. Particle motion follows a curl of perlin noise. Rendering is finished with some RGB shift, noise and vignette.</p>
+				<p>Built with <a href="threejs.org">three.js</a>, GLSL code for curl noise from <a href="https://github.com/dli/flow" rel="external" >flow</a> by <a href="https://twitter.com/daviddotli" >David Li</a>, <a href="https://github.com/spite/Maf.js/">Maf.js</a> and <a href="https://workshop.chromeexperiments.com/examples/gui/#1--Basic-Usage" >dat.gui</a>.</p>
+				<p>Code available on <a href="https://github.com/spite/codevember-2017/blob/master/whirly-bonfire/index.html" >GitHub</a>.</p>
+				<h1>Controls</h1>
+				<p>Play with the params:</p>
+				<ul>
+					<li><b>scale</b>: changes the size of the particles.</li>
+					<li><b>taper</b>: changes the particles shapes from rectangular to tapered.</li>
+					<li><b>opacity</b>: opacity of the particles.</li>
+					<li><b>dimFar</b>: controls attenuation of color in the distance.</li>
+					<li><b>range</b>: controls how many particles to draw.</li>
+					<li><b>colorise</b>: turn it on to have HSV colours.</li>
+					<li><b>wireframe</b>: turn it on to see how the particle are made.</li>
+				</ul>
+				<ul>
+					<li><b>spread</b>: how far apart particles are spawned.</li>
+					<li><b>decay</b>: how fast particles die.</li>
+					<li><b>speed</b>: how fast they move through the field.</li>
+					<li><b>persistence</b>: how long the streaks are along the field.</li>
+					<li><b>animate</b>: turn it off to stop the simulation.</li>
+				</ul>
 				<a href="#" id="close-details">Close</a>
 			</div>
 		</div>
@@ -179,6 +202,8 @@ vec4 simplexNoiseDerivatives (vec4 v) {
 
 vec3 curlNoise(vec3 p) {
 
+	float t = .01 * time / ( 1000./60. );
+
 	vec4 xNoisePotentialDerivatives = vec4(0.0);
 	vec4 yNoisePotentialDerivatives = vec4(0.0);
 	vec4 zNoisePotentialDerivatives = vec4(0.0);
@@ -191,9 +216,9 @@ vec3 curlNoise(vec3 p) {
 	        noiseScale = 1.0;
 	    }
 
-	    xNoisePotentialDerivatives += simplexNoiseDerivatives(vec4(p * pow(2.0, float(i)), time)) * noiseScale * scale;
-	    yNoisePotentialDerivatives += simplexNoiseDerivatives(vec4((p + vec3(123.4, 129845.6, -1239.1)) * pow(2.0, float(i)), time)) * noiseScale * scale;
-	    zNoisePotentialDerivatives += simplexNoiseDerivatives(vec4((p + vec3(-9519.0, 9051.0, -123.0)) * pow(2.0, float(i)), time)) * noiseScale * scale;
+	    xNoisePotentialDerivatives += simplexNoiseDerivatives(vec4(p * pow(2.0, float(i)), t)) * noiseScale * scale;
+	    yNoisePotentialDerivatives += simplexNoiseDerivatives(vec4((p + vec3(123.4, 129845.6, -1239.1)) * pow(2.0, float(i)), t)) * noiseScale * scale;
+	    zNoisePotentialDerivatives += simplexNoiseDerivatives(vec4((p + vec3(-9519.0, 9051.0, -123.0)) * pow(2.0, float(i)), t)) * noiseScale * scale;
 	}
 
 	vec3 noiseVelocity = vec3(
@@ -412,10 +437,13 @@ function createRenderTarget() {
 	return new THREE.WebGLRenderTarget( 1, 1, {
 		wrapS: THREE.ClampToEdgeWrapping,
 		wrapT: THREE.ClampToEdgeWrapping,
+		minFilter: THREE.NearestFilter,
+		magFilter: THREE.NearestFilter,
 		format: THREE.RGBAFormat,
 		type: THREE.FloatType,
 		stencilBuffer: false,
-		depthBuffer: false
+		depthBuffer: false,
+		generateMipmaps: false
 	});
 
 }
@@ -623,6 +651,7 @@ function init() {
 	container.appendChild( renderer.domElement );
 
 	helper = new FBOHelper(renderer);
+	helper.show(false);
 
 	addCommonUI(renderer.domElement);
 
@@ -699,7 +728,7 @@ function animate() {
 		simulation.shader.uniforms.persistence.value = params.persistence;
 		simulation.shader.uniforms.speed.value = params.speed;
 		simulation.shader.uniforms.spread.value = params.spread;
-		simulation.shader.uniforms.time.value += .01;
+		simulation.shader.uniforms.time.value = performance.now();
 		simulation.render();
 		particleMaterial.uniforms.curPos.value = simulation.front.texture;
 		particleMaterial.uniforms.prevPos.value = simulation.back.texture;

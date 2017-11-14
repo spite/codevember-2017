@@ -24,7 +24,7 @@ function PingPongTexture( renderer, shader, width, height, format, type ) {
 
 PingPongTexture.prototype.render = function() {
 
-	this.shader.uniforms.source.value = this.front;
+	this.shader.uniforms.source.value = this.front.texture;
 
 	this.target = 1 - this.target;
 	this.front = this.targets[ this.target ];
