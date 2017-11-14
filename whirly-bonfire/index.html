@@ -32,6 +32,7 @@
 		<script src="../js/Maf.js"></script>
 		<script src="../js/THREE.FBOHelper.js"></script>
 		<script src="../js/THREE.PingPongTexture.js"></script>
+		<script src="../js/THREE.ShaderTexture.js"></script>
 		<script src="../js/dat.gui.min.js"></script>
 
 <script type="x-shader/x-vertex" id="ortho-vs" >
@@ -274,7 +275,7 @@ void main() {
 
 	float s = .18;
 	float size = 1.;
-	float smallSize = taper * size;
+	float smallSize = (1.-taper) * size;
 
 	if(id==0){ fp = lpp; offset = -sd; vUv = vec4(0.,.5,1.,1.); size = smallSize; }
 	else if(id==1){ fp = lpp; offset = -perp; vUv = vec4(s,0.,1.,1.);size = smallSize; }
@@ -302,6 +303,60 @@ void main() {
 	vColor *= vec3( 1. - fogFactor );
 
 	gl_Position = projectionMatrix * p;
+
+}
+
+</script>
+
+<script type="x-shader/x-fragment" id="final-fs" >
+precision highp float;
+
+uniform sampler2D inputTexture;
+uniform vec2 resolution;
+
+uniform float boost;
+uniform float reduction;
+
+uniform float amount;
+uniform float time;
+
+varying vec2 vUv;
+
+float random(vec2 n, float offset ){
+	return .5 - fract(sin(dot(n.xy + vec2( offset, 0. ), vec2(12.9898, 78.233)))* 43758.5453);
+}
+
+vec3 gammaCorrect(vec3 color, float gamma){
+    return pow(color, vec3(1.0/gamma));
+}
+
+vec3 levelRange(vec3 color, float minInput, float maxInput){
+    return min(max(color - vec3(minInput), vec3(0.0)) / (vec3(maxInput) - vec3(minInput)), vec3(1.0));
+}
+
+vec3 finalLevels(vec3 color, float minInput, float gamma, float maxInput){
+    return gammaCorrect(levelRange(color, minInput, maxInput), gamma);
+}
+
+void main() {
+
+    vec2 res = 2. / resolution;
+
+    vec4 g = texture2D(inputTexture,vUv);
+    vec4 r = texture2D(inputTexture,vUv-vec2(res.x,0.));
+    vec4 b = texture2D(inputTexture,vUv+vec2(res.x,0.));
+
+    vec4 color = vec4(r.r, g.g, b.b, 1. );
+	//color.rgb = finalLevels(color.rgb, 132.0/255.0, 1.5, 240.0/255.0);
+ 	color += vec4( vec3( amount * random( vUv, time ) ), 1. );
+
+    vec2 position = ( gl_FragCoord.xy / resolution ) - .5;
+	float vignette = length( position );
+    vignette = boost - vignette * reduction;
+
+    color.rgb *= vignette;
+
+    gl_FragColor = color;
 
 }
 
@@ -365,8 +420,23 @@ function createRenderTarget() {
 
 }
 
+function createFBO() {
+
+	return new THREE.WebGLRenderTarget( 1, 1, {
+		wrapS: THREE.ClampToEdgeWrapping,
+		wrapT: THREE.ClampToEdgeWrapping,
+		format: THREE.RGBAFormat,
+		stencilBuffer: false,
+		depthBuffer: false
+	});
+
+}
+
 var particleMaterial;
 var simulation;
+var fbo;
+var finalTexture;
+var resolution = new THREE.Vector2();
 
 function initParticles() {
 
@@ -441,7 +511,7 @@ function initParticles() {
 			wireframe: { type: 'f', value: 0 },
 			opacity: { type: 'f', value: 1. },
 			dimFar: { type: 'f', value: 1. },
-			color: { type: 'c', value: new THREE.Color( 0xffa71d ) },
+			color: { type: 'c', value: new THREE.Color( 0xfb710c ) },
 			curPos: { type: 't', value: curPos },
 			prevPos: { type: 't', value: prevPos },
 			vertices: { type: 'v3v', value: [
@@ -491,6 +561,24 @@ function initParticles() {
 	helper.attach( simulation.front, 'front' );
 	helper.attach( simulation.back, 'back' );
 
+	fbo = createFBO();
+	helper.attach( fbo, 'fbo');
+
+	var finalShader = new THREE.RawShaderMaterial( {
+		uniforms: {
+			inputTexture: { type: 't', value: fbo.texture },
+			resolution: { type: 'v2', value: resolution },
+			boost: { type: 'f', value: 1.1 },
+			reduction: { type: 'f', value: 1.1 },
+			amount: { type: 'f', value: .1 },
+			time: { type: 'f', value: 0 },
+		},
+		vertexShader: document.getElementById('ortho-vs').textContent,
+		fragmentShader: document.getElementById('final-fs').textContent,
+	} );
+
+	finalTexture = new ShaderTexture(renderer,finalShader,1,1);
+
 }
 
 
@@ -502,7 +590,7 @@ function initScene() {
 
 var Params = function() {
   this.scale = 0.1;
-  this.taper = .1;
+  this.taper = .9;
   this.opacity = 1.;
   this.decay = .05;
   this.dimFar = 2000;
@@ -589,8 +677,13 @@ function onWindowResized( event ) {
 	camera.aspect = w / h;
 	camera.updateProjectionMatrix();
 
-	particleMaterial.uniforms.resolution.value.set(w,h);
+	var dPR = window.devicePixelRatio;
 
+	particleMaterial.uniforms.resolution.value.set(w*dPR,h*dPR);
+	fbo.setSize(w*dPR,h*dPR);
+	resolution.set(w*dPR,h*dPR);
+
+	helper.refreshFBO(fbo);
 	helper.setSize( w,h );
 
 }
@@ -622,7 +715,10 @@ function animate() {
 	particleMaterial.uniforms.wireframe.value = params.wireframe?1:0;
 	particleMaterial.wireframe = params.wireframe;
 
-	renderer.render( scene, camera );
+	renderer.render( scene, camera, fbo );
+	finalTexture.shader.uniforms.time.value = .0001 * performance.now();
+	finalTexture.render(true);
+
 	helper.update();
 
 }
