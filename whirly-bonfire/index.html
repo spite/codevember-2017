@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>TITLE - Codevember 2017</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
+			<h1>#. TITLE</h1>
+			<p>Lorem ipsum</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+		<script src="../js/Maf.js"></script>
+		<script src="../js/THREE.FBOHelper.js"></script>
+		<script src="../js/THREE.PingPongTexture.js"></script>
+		<script src="../js/dat.gui.min.js"></script>
+
+<script type="x-shader/x-vertex" id="ortho-vs" >
+precision highp float;
+
+attribute vec3 position;
+attribute vec2 uv;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+varying vec2 vUv;
+
+void main() {
+
+	vUv = uv;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1. );
+
+}
+</script>
+
+<script type="x-shader/x-fragment" id="sim-fs" >
+precision highp float;
+
+uniform sampler2D source;
+uniform sampler2D seed;
+uniform vec2 resolution;
+uniform float time;
+uniform float persistence;
+uniform float speed;
+uniform float decay;
+uniform float spread;
+
+varying vec2 vUv;
+
+vec4 mod289(vec4 x) {
+    return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+float mod289(float x) {
+    return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+vec4 permute(vec4 x) {
+    return mod289(((x*34.0)+1.0)*x);
+}
+
+float permute(float x) {
+    return mod289(((x*34.0)+1.0)*x);
+}
+
+
+vec4 taylorInvSqrt(vec4 r) {
+    return 1.79284291400159 - 0.85373472095314 * r;
+}
+
+float taylorInvSqrt(float r) {
+    return 1.79284291400159 - 0.85373472095314 * r;
+}
+
+vec4 grad4(float j, vec4 ip) {
+    const vec4 ones = vec4(1.0, 1.0, 1.0, -1.0);
+    vec4 p,s;
+
+    p.xyz = floor( fract (vec3(j) * ip.xyz) * 7.0) * ip.z - 1.0;
+    p.w = 1.5 - dot(abs(p.xyz), ones.xyz);
+    s = vec4(lessThan(p, vec4(0.0)));
+    p.xyz = p.xyz + (s.xyz*2.0 - 1.0) * s.www;
+
+    return p;
+}
+
+
+#define F4 0.309016994374947451
+
+vec4 simplexNoiseDerivatives (vec4 v) {
+    const vec4  C = vec4( 0.138196601125011,0.276393202250021,0.414589803375032,-0.447213595499958);
+
+    vec4 i  = floor(v + dot(v, vec4(F4)) );
+    vec4 x0 = v -   i + dot(i, C.xxxx);
+
+    vec4 i0;
+    vec3 isX = step( x0.yzw, x0.xxx );
+    vec3 isYZ = step( x0.zww, x0.yyz );
+    i0.x = isX.x + isX.y + isX.z;
+    i0.yzw = 1.0 - isX;
+    i0.y += isYZ.x + isYZ.y;
+    i0.zw += 1.0 - isYZ.xy;
+    i0.z += isYZ.z;
+    i0.w += 1.0 - isYZ.z;
+
+    vec4 i3 = clamp( i0, 0.0, 1.0 );
+    vec4 i2 = clamp( i0-1.0, 0.0, 1.0 );
+    vec4 i1 = clamp( i0-2.0, 0.0, 1.0 );
+
+    vec4 x1 = x0 - i1 + C.xxxx;
+    vec4 x2 = x0 - i2 + C.yyyy;
+    vec4 x3 = x0 - i3 + C.zzzz;
+    vec4 x4 = x0 + C.wwww;
+
+    i = mod289(i);
+    float j0 = permute( permute( permute( permute(i.w) + i.z) + i.y) + i.x);
+    vec4 j1 = permute( permute( permute( permute (
+             i.w + vec4(i1.w, i2.w, i3.w, 1.0 ))
+           + i.z + vec4(i1.z, i2.z, i3.z, 1.0 ))
+           + i.y + vec4(i1.y, i2.y, i3.y, 1.0 ))
+           + i.x + vec4(i1.x, i2.x, i3.x, 1.0 ));
+
+
+    vec4 ip = vec4(1.0/294.0, 1.0/49.0, 1.0/7.0, 0.0) ;
+
+    vec4 p0 = grad4(j0,   ip);
+    vec4 p1 = grad4(j1.x, ip);
+    vec4 p2 = grad4(j1.y, ip);
+    vec4 p3 = grad4(j1.z, ip);
+    vec4 p4 = grad4(j1.w, ip);
+
+    vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+    p4 *= taylorInvSqrt(dot(p4,p4));
+
+    vec3 values0 = vec3(dot(p0, x0), dot(p1, x1), dot(p2, x2)); //value of contributions from each corner at point
+    vec2 values1 = vec2(dot(p3, x3), dot(p4, x4));
+
+    vec3 m0 = max(0.5 - vec3(dot(x0,x0), dot(x1,x1), dot(x2,x2)), 0.0); //(0.5 - x^2) where x is the distance
+    vec2 m1 = max(0.5 - vec2(dot(x3,x3), dot(x4,x4)), 0.0);
+
+    vec3 temp0 = -6.0 * m0 * m0 * values0;
+    vec2 temp1 = -6.0 * m1 * m1 * values1;
+
+    vec3 mmm0 = m0 * m0 * m0;
+    vec2 mmm1 = m1 * m1 * m1;
+
+    float dx = temp0[0] * x0.x + temp0[1] * x1.x + temp0[2] * x2.x + temp1[0] * x3.x + temp1[1] * x4.x + mmm0[0] * p0.x + mmm0[1] * p1.x + mmm0[2] * p2.x + mmm1[0] * p3.x + mmm1[1] * p4.x;
+    float dy = temp0[0] * x0.y + temp0[1] * x1.y + temp0[2] * x2.y + temp1[0] * x3.y + temp1[1] * x4.y + mmm0[0] * p0.y + mmm0[1] * p1.y + mmm0[2] * p2.y + mmm1[0] * p3.y + mmm1[1] * p4.y;
+    float dz = temp0[0] * x0.z + temp0[1] * x1.z + temp0[2] * x2.z + temp1[0] * x3.z + temp1[1] * x4.z + mmm0[0] * p0.z + mmm0[1] * p1.z + mmm0[2] * p2.z + mmm1[0] * p3.z + mmm1[1] * p4.z;
+    float dw = temp0[0] * x0.w + temp0[1] * x1.w + temp0[2] * x2.w + temp1[0] * x3.w + temp1[1] * x4.w + mmm0[0] * p0.w + mmm0[1] * p1.w + mmm0[2] * p2.w + mmm1[0] * p3.w + mmm1[1] * p4.w;
+
+    return vec4(dx, dy, dz, dw) * 49.0;
+}
+
+vec3 curlNoise(vec3 p) {
+
+	vec4 xNoisePotentialDerivatives = vec4(0.0);
+	vec4 yNoisePotentialDerivatives = vec4(0.0);
+	vec4 zNoisePotentialDerivatives = vec4(0.0);
+
+	for (int i = 0; i < 3; ++i) {
+	    float scale = (1.0 / 2.0) * pow(2.0, float(i));
+
+	    float noiseScale = pow(persistence, float(i));
+	    if (persistence == 0.0 && i == 0) { //fix undefined behaviour
+	        noiseScale = 1.0;
+	    }
+
+	    xNoisePotentialDerivatives += simplexNoiseDerivatives(vec4(p * pow(2.0, float(i)), time)) * noiseScale * scale;
+	    yNoisePotentialDerivatives += simplexNoiseDerivatives(vec4((p + vec3(123.4, 129845.6, -1239.1)) * pow(2.0, float(i)), time)) * noiseScale * scale;
+	    zNoisePotentialDerivatives += simplexNoiseDerivatives(vec4((p + vec3(-9519.0, 9051.0, -123.0)) * pow(2.0, float(i)), time)) * noiseScale * scale;
+	}
+
+	vec3 noiseVelocity = vec3(
+		zNoisePotentialDerivatives[1] - yNoisePotentialDerivatives[2],
+		xNoisePotentialDerivatives[2] - zNoisePotentialDerivatives[0],
+		yNoisePotentialDerivatives[0] - xNoisePotentialDerivatives[1] );
+
+	return noiseVelocity;
+
+}
+
+void main() {
+	vec4 s = texture2D(source,vUv);
+	if( s.w <= 0. ) {
+		s = texture2D(seed,vUv);
+		s.xyz *= spread;
+	}else{
+		s.xyz += speed * curlNoise( .001 * s.xyz);
+		s.w -= decay;
+	}
+	gl_FragColor = s;
+}
+</script>
+
+<script id="particle-vs" type="x-shader/x-vertex">
+precision highp float;
+
+attribute vec3 position;
+attribute float vertexId;
+
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+uniform vec3 vertices[ 12 ];
+
+uniform vec2 dimensions;
+uniform vec2 resolution;
+uniform float scale;
+uniform vec3 color;
+uniform float colorise;
+uniform float dimFar;
+uniform float wireframe;
+uniform float taper;
+
+uniform sampler2D curPos;
+uniform sampler2D prevPos;
+
+varying vec4 vUv;
+varying vec3 vColor;
+
+const float PI = 3.14159265359;
+
+vec3 hsv2rgb(vec3 c) {
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+void main() {
+
+	int id = int( vertexId );
+	vec3 v = vertices[ id ];
+	vec2 luv = vec2( mod( position.x, dimensions.x ) / dimensions.x, floor( position.x / dimensions.y ) / dimensions.y );
+	vec4 lp = texture2D( curPos, luv );
+	vec4 lpp = texture2D( prevPos, luv );
+	vec4 fp = vec4(0.);
+
+	vec4 tlp = projectionMatrix * modelViewMatrix * vec4( lp.xyz, 1. );
+	vec4 tlpp = projectionMatrix * modelViewMatrix * vec4( lpp.xyz, 1. );
+	vec4 d = projectionMatrix * modelViewMatrix * ( tlp - tlpp );
+	vec2 tlp2 = tlp.xy/tlp.w;
+	vec2 tlpp2 = tlpp.xy/tlpp.w;
+	vec2 dir = normalize(tlp2 - tlpp2);
+	float aspect = resolution.x / resolution.y;
+	dir.x *= aspect;
+	vec2 sd = .5 * dir;
+	vec2 perp = normalize(vec2(-dir.y,dir.x));
+	vec2 offset = vec2(0.);
+
+	float s = .18;
+	float size = 1.;
+	float smallSize = taper * size;
+
+	if(id==0){ fp = lpp; offset = -sd; vUv = vec4(0.,.5,1.,1.); size = smallSize; }
+	else if(id==1){ fp = lpp; offset = -perp; vUv = vec4(s,0.,1.,1.);size = smallSize; }
+	else if(id==2){ fp = lpp; offset = perp; vUv = vec4(s,1.,1.,1.);size = smallSize; }
+
+	else if(id==3){ fp = lpp; offset = -perp; vUv = vec4(s,0.,0.,1.);size = smallSize; }
+	else if(id==4){ fp = lp; offset = -perp; vUv = vec4(1.-s,0.,0.,1.);}
+	else if(id==5){ fp = lpp; offset = perp; vUv = vec4(s,1.,0.,1.);size = smallSize; }
+
+	else if(id==6){ fp = lpp; offset = perp; vUv = vec4(s,1.,0.,1.);size = smallSize; }
+	else if(id==7){ fp = lp; offset = -perp; vUv = vec4(1.-s,0.,0.,1.);}
+	else if(id==8){ fp = lp; offset = perp; vUv = vec4(1.-s,1.,0.,1.);}
+
+	else if(id==9){ fp = lp; offset = perp; vUv = vec4(1.-s,1.,1.,1.);}
+	else if(id==10){ fp = lp; offset = -perp; vUv = vec4(1.-s,0.,1.,1.);}
+	else if(id==11){ fp = lp; offset = sd; vUv = vec4(1.,.5,1.,1.);}
+
+	vec4 p = modelViewMatrix * vec4( fp.xyz, 1. );
+	p.xy += position.y * scale * size * offset;
+
+	if( lpp.w < lp.w ) p.x = 1000000.;
+
+	vColor = mix(color,hsv2rgb(vec3(length(p), .75,.5 )),colorise);
+	float fogFactor = clamp(smoothstep( 1., dimFar, -p.z ),0.,1.);
+	vColor *= vec3( 1. - fogFactor );
+
+	gl_Position = projectionMatrix * p;
+
+}
+
+</script>
+
+<script id="particle-fs" type="x-shader/x-vertex">
+precision highp float;
+
+varying vec4 vUv;
+varying vec3 vColor;
+
+uniform float opacity;
+uniform float wireframe;
+
+void main() {
+
+	if( wireframe == 1. ){
+		gl_FragColor = vec4(1.,1.,1.,opacity);
+		return;
+	}
+
+	vec2 barycenter = vec2( .5, .5 );
+	float dist;
+	float d;
+	if( vUv.z == 0. ) {
+		dist = length( vUv.y - barycenter.y );
+		d = smoothstep(.32,.39,dist);
+	} else {
+		dist = length( vUv.xy - barycenter );
+		d = smoothstep(.45,.49,dist);
+	}
+	gl_FragColor = vec4( mix(vec3(1.,0.,0.),vColor, .5 + .5 *vUv.x) * gl_FragCoord.z, ( 1. - d ) * ( vUv.x) *opacity);
+
+}
+
+</script>
+
+<script>
+
+'use strict';
+
+var container, renderer, camera, controls, scene;
+
+var helper;
+
+var container = document.getElementById( 'container' );
+
+var NUM_POINTS = 10;
+var particleSystem;
+
+function createRenderTarget() {
+
+	return new THREE.WebGLRenderTarget( 1, 1, {
+		wrapS: THREE.ClampToEdgeWrapping,
+		wrapT: THREE.ClampToEdgeWrapping,
+		format: THREE.RGBAFormat,
+		type: THREE.FloatType,
+		stencilBuffer: false,
+		depthBuffer: false
+	});
+
+}
+
+var particleMaterial;
+var simulation;
+
+function initParticles() {
+
+	var width = 512;
+	var height = 512;
+
+	NUM_POINTS = width * height;
+
+	var positions = createRenderTarget();
+	positions.setSize(width,height);
+
+	var cur = new Float32Array(width*height*4);
+	var prev = new Float32Array(width*height*4);
+
+	var ptr = 0;
+	var radius = 1;
+	var tmp = new THREE.Vector3();
+	for( var y = 0; y < height; y++ ){
+		for( var x = 0; x < width; x++ ) {
+			var r = Maf.randomInRange(.5 * radius,radius);
+			tmp.set( Maf.randomInRange(-1,1), Maf.randomInRange(-1,1), Maf.randomInRange(-1,1) );
+			//tmp.normalize().multiplyScalar(r);
+			cur[ ptr + 0 ] = tmp.x;
+			cur[ ptr + 1 ] = tmp.y;
+			cur[ ptr + 2 ] = tmp.z;
+			cur[ ptr + 3 ] = Math.random() * 100;
+			prev[ ptr + 0 ] = tmp.x;
+			prev[ ptr + 1 ] = tmp.y;
+			prev[ ptr + 2 ] = tmp.z;
+			prev[ ptr + 3 ] = 100;
+			ptr += 4;
+		}
+	}
+
+	var curPos = new THREE.DataTexture( cur, width, height, THREE.RGBAFormat, THREE.FloatType );
+	var prevPos = new THREE.DataTexture( prev, width, height, THREE.RGBAFormat, THREE.FloatType );
+	curPos.needsUpdate = true;
+	prevPos.needsUpdate = true;
+	helper.attach( curPos, 'cur' );
+	helper.attach( prevPos, 'prev' );
+
+	var pData = [];
+	var idData = [];
+	var sizeData = [];
+	for( var j = 0; j < NUM_POINTS; j++ ) {
+
+		var s = Maf.randomInRange(.5,2.);
+		var c = Maf.randomInRange(0,1);
+		for( var k = 0; k < 12; k++ ) {
+			pData.push( j );
+			pData.push( s );
+			pData.push( c );
+			idData.push( k );
+		}
+
+	}
+
+	var particleGeometry = new THREE.BufferGeometry();
+	var positions = new Float32Array( pData );
+	var indices = new Float32Array( idData );
+
+	particleGeometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+	particleGeometry.addAttribute( 'vertexId', new THREE.BufferAttribute( indices, 1 ) );
+
+	particleMaterial = new THREE.RawShaderMaterial( {
+		uniforms:{
+			scale: { type: 'f', value: .1 },
+			taper: { type: 'f', value: .1 },
+			dimensions: { type: 'v2', value: new THREE.Vector2(width,height)},
+			resolution: { type: 'v2', value: new THREE.Vector2(0,0)},
+			colorise: { type: 'f', value: 0 },
+			wireframe: { type: 'f', value: 0 },
+			opacity: { type: 'f', value: 1. },
+			dimFar: { type: 'f', value: 1. },
+			color: { type: 'c', value: new THREE.Color( 0xffa71d ) },
+			curPos: { type: 't', value: curPos },
+			prevPos: { type: 't', value: prevPos },
+			vertices: { type: 'v3v', value: [
+				new THREE.Vector3( 0,0,0 ),
+				new THREE.Vector3( 0,0,0 ),
+				new THREE.Vector3( 0,0,0 ),
+				new THREE.Vector3( 0,0,0 ),
+				new THREE.Vector3( 0,0,0 ),
+				new THREE.Vector3( 0,0,0 ),
+				new THREE.Vector3( 0,0,0 ),
+				new THREE.Vector3( 0,0,0 ),
+				new THREE.Vector3( 0,0,0 ),
+				new THREE.Vector3( 0,0,0 ),
+				new THREE.Vector3( 0,0,0 ),
+				new THREE.Vector3( 0,0,0 )
+			]}
+		},
+		vertexShader: document.getElementById( 'particle-vs' ).textContent,
+		fragmentShader: document.getElementById( 'particle-fs' ).textContent,
+		depthTest: false,
+		depthWrite: false,
+		transparent: true,
+		wireframe: !true,
+		blending: THREE.AdditiveBlending
+	} );
+
+	particleSystem = new THREE.Mesh( particleGeometry, particleMaterial );
+	scene.add( particleSystem );
+
+	var simulationShader = new THREE.RawShaderMaterial( {
+		uniforms: {
+			source: { type: 't', value: null },
+			seed: { type: 't', value: curPos },
+			resolution: { type: 'v2', value: new THREE.Vector2(width,height) },
+			time: { type: 'f', value: 0 },
+			persistence: { type: 'f', value: .5 },
+			speed: { type: 'f', value: .5 },
+			spread: { type: 'f', value: .5 },
+			decay: { type: 'f', value: .5 },
+		},
+		vertexShader: document.getElementById('ortho-vs').textContent,
+		fragmentShader: document.getElementById('sim-fs').textContent,
+	} );
+
+	simulation = new PingPongTexture( renderer, simulationShader, width, height, THREE.RGBAFormat, THREE.FloatType );
+
+	helper.attach( simulation.front, 'front' );
+	helper.attach( simulation.back, 'back' );
+
+}
+
+
+function initScene() {
+
+	initParticles();
+
+}
+
+var Params = function() {
+  this.scale = 0.1;
+  this.taper = .1;
+  this.opacity = 1.;
+  this.decay = .05;
+  this.dimFar = 2000;
+  this.speed = 2.;
+  this.wireframe = false;
+  this.persistence = .5;
+  this.range = 0
+  this.colorise = false;
+  this.animate = true;
+  this.spread = 100;
+};
+var params = new Params();
+
+function init() {
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .001, 1000 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 0, 0, 2 );
+	camera.position.set( -140, -20, 180 );
+	camera.lookAt( camera.target );
+	scene.add( camera );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0x261b1f, 1 );
+	container.appendChild( renderer.domElement );
+
+	helper = new FBOHelper(renderer);
+
+	addCommonUI(renderer.domElement);
+
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	initScene();
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	window.addEventListener( 'keydown', function(e) {
+		if( e.keyCode === 32 ){
+			params.animate = !params.animate;
+		}
+	})
+
+	params.range = NUM_POINTS;
+
+	var gui = new dat.GUI();
+	var f1 = gui.addFolder('Render');
+	f1.add(params, 'scale', .1, 1. ).listen();
+	f1.add(params, 'taper', 0., 1. ).listen();
+	f1.add(params, 'opacity', 0, 1 ).listen();
+	f1.add(params, 'dimFar', 0, 2000 ).listen();
+	f1.add(params, 'range', 0, NUM_POINTS).listen();
+	f1.add(params, 'colorise').listen();
+	f1.add(params, 'wireframe').listen();
+	var f2 = gui.addFolder('Simulation');
+	f2.add(params, 'spread', 1, 100. ).listen();
+	f2.add(params, 'decay', 0.01, 1. ).listen();
+	f2.add(params, 'speed', .1, 2 ).listen();
+	f2.add(params, 'persistence', .1, 2).listen();
+	f2.add(params, 'animate').listen();
+
+	f1.open();
+	f2.open();
+	gui.close();
+
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+	particleMaterial.uniforms.resolution.value.set(w,h);
+
+	helper.setSize( w,h );
+
+}
+
+function animate() {
+
+	requestAnimationFrame( animate );
+
+	controls.update();
+
+	if( params.animate ) {
+		simulation.shader.uniforms.decay.value = params.decay;
+		simulation.shader.uniforms.persistence.value = params.persistence;
+		simulation.shader.uniforms.speed.value = params.speed;
+		simulation.shader.uniforms.spread.value = params.spread;
+		simulation.shader.uniforms.time.value += .01;
+		simulation.render();
+		particleMaterial.uniforms.curPos.value = simulation.front.texture;
+		particleMaterial.uniforms.prevPos.value = simulation.back.texture;
+	}
+
+	particleSystem.geometry.drawRange.count = Math.round(params.range) * 12;
+	particleMaterial.uniforms.taper.value = params.taper;
+	particleMaterial.uniforms.opacity.value = params.opacity;
+	particleMaterial.uniforms.dimFar.value = params.dimFar;
+	particleMaterial.uniforms.scale.value = params.scale;
+	particleMaterial.uniforms.colorise.value = params.colorise?1:0;
+
+	particleMaterial.uniforms.wireframe.value = params.wireframe?1:0;
+	particleMaterial.wireframe = params.wireframe;
+
+	renderer.render( scene, camera );
+	helper.update();
+
+}
+
+window.addEventListener( 'load', init );
+
+</script>
+
+	</body>
+</html>

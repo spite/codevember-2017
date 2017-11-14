@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>TITLE - Codevember 2017</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
+			<h1>#. TITLE</h1>
+			<p>Lorem ipsum</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+		<script src="../js/Maf.js"></script>
+		<script src="../js/THREE.FBOHelper.js"></script>
+		<script src="../js/THREE.PingPongTexture.js"></script>
+
+<script id="particle-vs" type="x-shader/x-vertex">
+precision highp float;
+
+attribute vec3 position;
+attribute float vertexId;
+//attribute float size;
+
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+uniform vec3 vertices[ 12 ];
+uniform vec2 uvs[ 12 ];
+
+uniform vec2 dimensions;
+uniform vec2 resolution;
+uniform float scale;
+uniform vec3 color;
+
+uniform sampler2D curPos;
+uniform sampler2D prevPos;
+
+varying vec2 vUv;
+varying vec3 vColor;
+
+const float PI = 3.14159265359;
+
+void main() {
+
+	int id = int( vertexId );
+	vec3 v = vertices[ id ];
+	vec2 luv = vec2( mod( position.x, dimensions.x ) / dimensions.x, floor( position.x / dimensions.y ) / dimensions.y );
+	vec4 lp = texture2D( curPos, luv );
+	vec4 lpp = texture2D( prevPos, luv );
+	vec4 fp = vec4(0.);
+
+	vec4 tlp = projectionMatrix * modelViewMatrix * vec4( lp.xyz, 1. );
+	vec4 tlpp = projectionMatrix * modelViewMatrix * vec4( lpp.xyz, 1. );
+	vec4 d = projectionMatrix * modelViewMatrix * ( tlp - tlpp );
+	vec2 tlp2 = tlp.xy/tlp.w;
+	vec2 tlpp2 = tlpp.xy/tlpp.w;
+	vec2 dir = normalize(tlp2 - tlpp2);
+	float aspect = resolution.x / resolution.y;
+	dir.x *= aspect;
+	vec2 sd = dir;
+	vec2 perp = normalize(vec2(-dir.y,dir.x));
+	vec2 offset = vec2(0.);
+
+	float s = .17;
+
+	if(id==0){ fp = lpp; offset = -sd; vUv = vec2(0.,.5);}
+	else if(id==1){ fp = lpp; offset = -perp; vUv = vec2(s,0.);}
+	else if(id==2){ fp = lpp; offset = perp; vUv = vec2(s,1.);}
+
+	else if(id==3){ fp = lpp; offset = -perp; vUv = vec2(s,0.);}
+	else if(id==4){ fp = lp; offset = -perp; vUv = vec2(1.-s,0.);}
+	else if(id==5){ fp = lpp; offset = perp; vUv = vec2(s,1.);}
+
+	else if(id==6){ fp = lpp; offset = perp; vUv = vec2(s,1.);}
+	else if(id==7){ fp = lp; offset = -perp; vUv = vec2(1.-s,0.);}
+	else if(id==8){ fp = lp; offset = perp; vUv = vec2(1.-s,1.);}
+
+	else if(id==9){ fp = lp; offset = perp; vUv = vec2(1.-s,1.);}
+	else if(id==10){ fp = lp; offset = -perp; vUv = vec2(1.-s,0.);}
+	else if(id==11){ fp = lp; offset = sd; vUv = vec2(1.,.5);}
+
+	vec4 p = modelViewMatrix * vec4( fp.xyz, 1. );
+	p.xy += .01 * offset;
+
+	vColor = vec3(1.);
+
+	gl_Position = projectionMatrix * p;
+
+}
+
+</script>
+
+<script id="particle-fs" type="x-shader/x-vertex">
+precision highp float;
+
+varying vec2 vUv;
+varying vec3 vColor;
+
+uniform float opacity;
+
+void main() {
+
+	vec2 barycenter = vec2( .5, .5 );
+	float d = smoothstep(.45,.51,length( vUv - barycenter ));//smoothstep( .5, .55, 1. - 2. * length( vUv - barycenter ) );
+//	if( d <= 0. || a * opacity <= 0. ) discard;
+	gl_FragColor = vec4( vColor*d, 1. );
+}
+
+</script>
+
+<script>
+
+'use strict';
+
+var container, renderer, camera, controls, scene;
+var mesh;
+
+var helper;
+
+var container = document.getElementById( 'container' );
+
+var NUM_POINTS = 10;
+var particleSystem;
+
+function createRenderTarget() {
+
+	return new THREE.WebGLRenderTarget( 1, 1, {
+		wrapS: THREE.ClampToEdgeWrapping,
+		wrapT: THREE.ClampToEdgeWrapping,
+		format: THREE.RGBAFormat,
+		type: THREE.FloatType,
+		stencilBuffer: false,
+		depthBuffer: false
+	});
+
+}
+
+var particleMaterial;
+
+function initParticles() {
+
+	var width = 4;
+	var height = 4;
+
+	NUM_POINTS = width * height;
+
+	var positions = createRenderTarget();
+	positions.setSize(width,height);
+
+	var cur = new Float32Array(width*height*4);
+	var prev = new Float32Array(width*height*4);
+
+	var ptr = 0;
+	var r = .5;
+	var r2 = .1;
+	for( var y = 0; y < height; y++ ){
+		for( var x = 0; x < width; x++ ) {
+			var px = Maf.randomInRange(-r,r);
+			var py = Maf.randomInRange(-r,r);
+			var pz = Maf.randomInRange(-r,r);
+			cur[ ptr + 0 ] = px;
+			cur[ ptr + 1 ] = py;
+			cur[ ptr + 2 ] = pz;
+			cur[ ptr + 3 ] = 0;
+			prev[ ptr + 0 ] = px + Maf.randomInRange( -r2, r2 );
+			prev[ ptr + 1 ] = py + Maf.randomInRange( -r2, r2 );
+			prev[ ptr + 2 ] = pz + Maf.randomInRange( -r2, r2 );
+			prev[ ptr + 3 ] = 0
+			ptr += 4;
+		}
+	}
+
+	var curPos = new THREE.DataTexture( cur, width, height, THREE.RGBAFormat, THREE.FloatType );
+	var prevPos = new THREE.DataTexture( prev, width, height, THREE.RGBAFormat, THREE.FloatType );
+	curPos.needsUpdate = true;
+	prevPos.needsUpdate = true;
+	helper.attach( curPos, 'cur' );
+	helper.attach( prevPos, 'prev' );
+
+	var pData = [];
+	var idData = [];
+	var sizeData = [];
+	for( var j = 0; j < NUM_POINTS; j++ ) {
+
+		for( var k = 0; k < 12; k++ ) {
+			pData.push( j );
+			pData.push( 0 );
+			pData.push( 0 );
+			idData.push( k );
+		}
+
+	}
+
+	var particleGeometry = new THREE.BufferGeometry();
+	var positions = new Float32Array( pData );
+	var indices = new Float32Array( idData );
+	//var sizes = new Float32Array( sizeData );
+
+	particleGeometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+	particleGeometry.addAttribute( 'vertexId', new THREE.BufferAttribute( indices, 1 ) );
+	//particleGeometry.addAttribute( 'size', new THREE.BufferAttribute( sizes, 1 ) );
+
+	particleMaterial = new THREE.RawShaderMaterial( {
+		uniforms:{
+			scale: { type: 'f', value: .1 },
+			dimensions: { type: 'v2', value: new THREE.Vector2(width,height)},
+			resolution: { type: 'v2', value: new THREE.Vector2(0,0)},
+			opacity: { type: 'f', value: 1. },
+			color: { type: 'c', value: new THREE.Color( 0xffffff ) },
+			curPos: { type: 't', value: curPos },
+			prevPos: { type: 't', value: prevPos },
+			vertices: { type: 'v3v', value: [
+				new THREE.Vector3( -1, -1, 0 ),
+				new THREE.Vector3(  1, -1, 0 ),
+				new THREE.Vector3(  0,  1, 0 ),
+				new THREE.Vector3( -1.25, -1.25, 0 ),
+				new THREE.Vector3(  1.25, -1.25, 0 ),
+				new THREE.Vector3(  0,  1.25, 0 ),
+				new THREE.Vector3( -1.5, -1.5, 0 ),
+				new THREE.Vector3(  1.5, -1.5, 0 ),
+				new THREE.Vector3(  0,  1.5, 0 ),
+				new THREE.Vector3( -2, -2, 0 ),
+				new THREE.Vector3(  2, -2, 0 ),
+				new THREE.Vector3(  0,  2, 0 )
+			]},
+			uvs: { type: 'v2v', value: [
+				new THREE.Vector3( 0, 1 ),
+				new THREE.Vector3( 1, 1 ),
+				new THREE.Vector3( .5, 0 ),
+				new THREE.Vector3( 0, 1 ),
+				new THREE.Vector3( 1, 1 ),
+				new THREE.Vector3( .5, 0 ),
+				new THREE.Vector3( 0, 1 ),
+				new THREE.Vector3( 1, 1 ),
+				new THREE.Vector3( .5, 0 ),
+				new THREE.Vector3( 0, 1 ),
+				new THREE.Vector3( 1, 1 ),
+				new THREE.Vector3( .5, 0 )
+			]}
+		},
+		vertexShader: document.getElementById( 'particle-vs' ).textContent,
+		fragmentShader: document.getElementById( 'particle-fs' ).textContent,
+		depthTest: false,
+		depthWrite: false,
+		transparent: true,
+		wireframe: !true
+	} );
+
+	particleSystem = new THREE.Mesh( particleGeometry, particleMaterial );
+	scene.add( particleSystem );
+
+}
+
+
+function initScene() {
+
+	initParticles();
+
+}
+
+function init() {
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .001, 1000 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 0, 0, 2 );
+	camera.lookAt( camera.target );
+	scene.add( camera );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0x261b1f, 1 );
+	container.appendChild( renderer.domElement );
+
+	helper = new FBOHelper(renderer);
+
+	addCommonUI(renderer.domElement);
+
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	initScene();
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+	particleMaterial.uniforms.resolution.value.set(w,h);
+
+	helper.setSize( w,h );
+
+}
+
+function animate() {
+
+	requestAnimationFrame( animate );
+
+	controls.update();
+
+	renderer.render( scene, camera );
+	helper.update();
+
+}
+
+window.addEventListener( 'load', init );
+
+</script>
+
+	</body>
+</html>
