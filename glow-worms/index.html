@@ -1,0 +1,913 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>Glow Worms - Codevember 2017</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../holomap" >Previous</a> <!--| <a href="../n" >Next</a>--></p>
+			<h1>10. Glow Worms</h1>
+			<p>Tube geometry generated along a parametric path, with striped texture and super glowing postprocessing.</p>
+			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out.</p>
+			<p>Open <b>Controls</b> to play with the settings!</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Tube geometry generated along a parametric path, with striped texture and super glowing postprocessing.</p>
+				<p>From the knowledge in this discussion <a href="https://github.com/mrdoob/three.js/issues/905" >Drawing a long 3D tube</a>.</p>
+				<p>Tube creation from <a href="https://mattdesl.svbtle.com/shaping-curves-with-parametric-equations" >Shaping Curves with Parametric Equations</a>.</p>
+				<p>Built with <a href="threejs.org">three.js</a>, <a href="https://github.com/spite/Maf.js/">Maf.js</a> and <a href="https://workshop.chromeexperiments.com/examples/gui/#1--Basic-Usage" >dat.gui</a>.</p>
+				<p>Code available on <a href="https://github.com/spite/codevember-2017/tree/master/glow-worms" >GitHub</a>.</p>
+				<h1>Controls</h1>
+				<p>Play with the params:</p>
+				<ul>
+					<li><b>Length</b>: size of the worm along the curve.</li>
+					<li><b>Speed</b>: speed of the worm along the curve.</li>
+					<li><b>Stripes</b>: toggle stripes.</li>
+					<li><b>StripesFreq</b>: frequency of the stripes pattern. Try 0 for NEONGLOWWORM.</li>
+					<li><b>Taper</b>: toggle tapering at the start.</li>
+					<li><b>Curve</b>: choose from the different range of curves.</li>
+				</ul>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+		<script src="../js/THREE.FBOHelper.js"></script>
+		<script src="../js/Maf.js"></script>
+		<script src="../js/Bloom.js"></script>
+		<script src="../js/dat.gui.min.js"></script>
+
+<script type="x-shader/x-vertex" id="backdrop-vs" >
+precision highp float;
+
+attribute vec3 position;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+varying vec3 vPosition;
+
+void main() {
+	vPosition = position;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.);
+}
+</script>
+
+<script type="x-shader/x-fragment" id="backdrop-fs" >
+precision highp float;
+
+uniform vec3 lightPosition;
+uniform vec3 top;
+uniform vec3 bottom;
+
+varying vec3 vPosition;
+
+void main() {
+	float d = dot( normalize(lightPosition), normalize(vPosition));
+	d = .5 + .5 * d;
+	gl_FragColor = vec4(1.2 *mix(bottom, top, d),1.);
+}
+</script>
+
+<script type="x-shader/x-vertex" id="tube-vs" >
+precision highp float;
+
+attribute vec3 position;
+attribute vec2 uv;
+
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+uniform mat3 normalMatrix;
+
+uniform float segments;
+uniform float time;
+uniform float splineLength;
+uniform float speed;
+uniform float radius;
+uniform float persistence;
+uniform float taper;
+uniform float curve;
+
+uniform vec3 lightPosition;
+
+uniform mat4 shadowMVP;
+uniform mat4 shadowV;
+uniform mat4 shadowP;
+
+uniform sampler2D depthTexture;
+
+varying vec2 vUv;
+varying vec3 vNormal;
+varying vec3 vNormal2;
+varying vec4 vShadowCoord;
+varying float vBias;
+varying vec3 vPosition;
+varying vec3 vPosition2;
+varying float vAlong;
+
+const float PI = 3.14159265359;
+
+vec3 helix( float t ) {
+
+	float t2 = splineLength * 2. * PI * t + speed * time;
+	float tx = 2. * cos(t2);
+	float ty = 2. * sin(t2);
+	float tz = 2. * t;
+
+	return vec3(tx, ty, tz);
+
+}
+
+vec3 knot( float t ) {
+	t *= splineLength * 2. * PI;
+	t += speed * time;;
+
+	float r = 1.;
+	float s = 3.;
+
+	float x = s * sin( t );
+	float y = cos( t ) * ( r + s * cos( t ) );
+	float z = sin( t ) * ( r + s * cos( t ) );
+
+	return vec3( x, y, z );
+}
+
+vec3 viviani(float t) {
+	t *= splineLength * 4. * PI;
+	t += speed * time;
+	float r = 1.5;
+        float tx = r*(1. + cos(t));
+         float ty = r*sin(t);
+         float tz = r*2. * sin(t / 2.);
+    return vec3(tx,ty,tz);
+}
+
+vec3 grannyKnot(float t) {
+	t *= splineLength * 2. * PI;
+	t += speed * time;
+  float x = -0.22 * cos(t) - 1.28 * sin(t) - 0.44 * cos(3. * t) - 0.78 * sin(3. * t);
+  float y = -0.1 * cos(2. * t) - 0.27 * sin(2. * t) + 0.38 * cos(4. * t) + 0.46 * sin(4. * t);
+  float z = 0.7 * cos(3. * t) - 0.4 * sin(3. * t);
+  float r = 2.;
+    return vec3(r *x, r*y,r* z);
+
+}
+
+vec3 treeFoilKnot(float t ) {
+
+	t *= splineLength * 2. * PI;
+	t += speed * time;
+
+	float x = ( 2. + cos( 3. * t ) ) * cos( 2. * t );
+	float y = ( 2. + cos( 3. * t ) ) * sin( 2. * t );
+	float z = sin( 3. * t );
+
+    return vec3(x, y, z);
+
+}
+
+vec3 torusKnot(float t) {
+
+	float p = 3.;
+	float q = 4.;
+
+	t *= splineLength * 2. * PI;
+	t += speed * time;
+
+	float x = ( 2. + cos( q * t ) ) * cos( p * t );
+	float y = ( 2. + cos( q * t ) ) * sin( p * t );
+	float z = sin( q * t );
+
+    return vec3(x, y, z);
+}
+
+vec3 cinquefoilKnot(float t){
+	float p = 2.;
+	float q = 5.;
+
+	t *= splineLength * 2. * PI;
+	t += speed * time;
+
+	float x = ( 2. + cos( q * t ) ) * cos( p * t );
+	float y = ( 2. + cos( q * t ) ) * sin( p * t );
+	float z = sin( q * t );
+
+    return vec3(x, y, z);
+}
+
+vec3 sample(float t) {
+	if( curve == 0. ) return helix(t);
+	if( curve == 1. ) return viviani(t);
+	if( curve == 2. ) return knot(t);
+	if( curve == 3. ) return grannyKnot(t);
+	if( curve == 4. ) return treeFoilKnot(t);
+	if( curve == 5. ) return torusKnot(t);
+	if( curve == 6. ) return cinquefoilKnot(t);
+	vec3 v = torusKnot(t);
+	return v;//helix(t);//viviani(t);
+}
+
+const float MAX_NUMBER = 1.79769313e+308;
+const float EPSILON = 1.19209290e-7;
+
+vec3 getTangent (vec3 a, vec3 b) {
+  return normalize(b - a);
+}
+
+void rotateByAxisAngle (inout vec3 normal, vec3 axis, float angle) {
+  // http://www.euclideanspace.com/maths/geometry/rotations/conversions/angleToQuaternion/index.htm
+  // assumes axis is normalized
+  float halfAngle = angle / 2.0;
+  float s = sin(halfAngle);
+  vec4 quat = vec4(axis * s, cos(halfAngle));
+  normal = normal + 2.0 * cross(quat.xyz, cross(quat.xyz, normal) + quat.w * normal);
+}
+
+void createTube (float t, out vec3 p, out vec3 n) {
+
+	  float nextT = t + 1. / segments;
+
+  // find first tangent
+  vec3 point0 = sample(0.0);
+  vec3 point1 = sample(1. / segments);
+
+  vec3 lastTangent = getTangent(point0, point1);
+  vec3 absTangent = abs(lastTangent);
+  float min = MAX_NUMBER;
+    vec3 tmpNormal = vec3(0.0);
+    if (absTangent.x <= min) {
+      min = absTangent.x;
+      tmpNormal.x = 1.0;
+    }
+    if (absTangent.y <= min) {
+      min = absTangent.y;
+      tmpNormal.y = 1.0;
+    }
+    if (absTangent.z <= min) {
+      tmpNormal.z = 1.0;
+    }
+
+  vec3 tmpVec = normalize(cross(lastTangent, tmpNormal));
+  vec3 lastNormal = cross(lastTangent, tmpVec);
+  vec3 lastBinormal = cross(lastTangent, lastNormal);
+  vec3 lastPoint = point0;
+
+  vec3 normal;
+  vec3 tangent;
+  vec3 binormal;
+  vec3 point;
+  float maxLen = (segments - 1.0);
+  float epSq = EPSILON * EPSILON;
+  for (float i = 1.0; i < 1000.; i += 1.0) {
+  	if( i > segments ) break;
+    float u = 1. * i / maxLen;
+    // could avoid additional sample here at expense of ternary
+    // point = i == 1.0 ? point1 : sample(u);
+    point = sample(u);
+    tangent = getTangent(lastPoint, point);
+    normal = lastNormal;
+    binormal = lastBinormal;
+
+    tmpVec = cross(lastTangent, tangent);
+    if ((tmpVec.x * tmpVec.x + tmpVec.y * tmpVec.y + tmpVec.z * tmpVec.z) > epSq) {
+      tmpVec = normalize(tmpVec);
+      float tangentDot = dot(lastTangent, tangent);
+      float theta = acos(clamp(tangentDot, -1.0, 1.0)); // clamp for floating pt errors
+      rotateByAxisAngle(normal, tmpVec, theta);
+    }
+
+    binormal = cross(tangent, normal);
+    if (u >= t) break;
+
+    lastPoint = point;
+    lastTangent = tangent;
+    lastNormal = normal;
+    lastBinormal = binormal;
+  }
+
+  // compute the TBN matrix
+  vec3 T = tangent;
+  vec3 B = binormal;
+  vec3 N = normal;
+
+  float r = radius * t;
+  if( taper == 1. ) {
+  	r = radius * pow( 4. * t * ( 1. - t ), 1. );
+  }
+  // extrude the path & create a new normal
+  n.xyz = normalize(B * r *position.x + N * r *position.z);
+  p.xyz = point + B * r *position.x + N * r *position.z;
+
+}
+vec3 perp(vec3 u){
+
+  vec3 u_prime = cross(u,vec3(1., 0., 0.));
+  if (length(u_prime) < 0.01 ) {
+     u_prime = cross(u, vec3(0., 1., 0.));
+  }
+  return normalize(u_prime);
+
+}
+
+mat3 new_rotate_triple_axis(vec3 x, vec3 y, vec3 z) {
+
+	/*mat3 m = mat3(
+		x.x, y.x, z.x,
+		x.y, y.y, z.y,
+		x.z, y.z, z.z
+	);*/
+
+	mat3 m = mat3(
+		x.x, x.y, x.z,
+		y.x, y.y, y.z,
+		z.x, z.y, z.z );
+/*
+	m.a, m.b, m.c = x.x, y.x, z.x
+	m.e, m.f, m.g = x.y, y.y, z.y
+	m.i, m.j, m.k = x.z, y.z, z.z
+*/
+	return m;
+}
+
+void createTube2 (float t, out vec3 p, out vec3 n) {
+
+	vec3 p1 = sample(t);
+	vec3 p2 = sample(t+1./segments);
+	vec3 A = normalize(p2 - p1);
+	vec3 B = perp(A);
+	vec3 C = normalize(cross(A,B));
+
+	mat3 m = new_rotate_triple_axis(B, C, A);
+	vec3 spoke_vector = m * vec3(position.x, position.z, 0.);
+
+	n.xyz = spoke_vector;
+
+	  float r = radius * t;
+	//float r = radius * pow( 4. * t * ( 1. - t ), 1. );
+	p = p1 + r * spoke_vector;
+
+}
+
+const mat4 biasMatrix = mat4(
+	0.5, 0.0, 0.0, 0.0,
+	0.0, 0.5, 0.0, 0.0,
+	0.0, 0.0, 0.5, 0.0,
+	0.5, 0.5, 0.5, 1.0
+);
+
+void main() {
+
+	vUv = uv;
+
+	vec3 p;
+	vec3 n;
+	createTube(position.y+.5, p, n);
+	//createTube2(position.y+.5, p, n);
+
+	vPosition = p;
+	vNormal = n;//normalMatrix * n;
+	vNormal2 = normalMatrix * n;
+	vAlong = position.y;
+
+	vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+	vShadowCoord = biasMatrix * shadowP * modelMatrix * shadowV * vec4(p,1.);
+	vPosition2 = mvPosition.xyz;
+
+	//vViewPosition = -mvPosition.xyz;
+	gl_Position = projectionMatrix * mvPosition;
+
+}
+</script>
+
+<script type="x-shader/x-fragment" id="tube-fs" >
+precision highp float;
+
+uniform float shadow;
+
+uniform mat4 shadowMVP;
+uniform mat4 shadowV;
+uniform mat4 shadowP;
+
+uniform vec3 lightPosition;
+uniform sampler2D depthTexture;
+uniform vec3 ambient;
+uniform float stripes;
+uniform float stripesFreq;
+
+varying vec2 vUv;
+varying vec3 vNormal;
+varying vec3 vNormal2;
+varying vec4 vShadowCoord;
+varying float vBias;
+varying vec3 vPosition;
+varying vec3 vPosition2;
+varying float vAlong;
+
+float sampleVisibility( vec3 coord, float bias ) {
+	float depth = texture2D( depthTexture, coord.xy ).r;
+	float visibility  = ( coord.z - depth > bias ) ? 0. : 1.;
+	return visibility;
+}
+
+float random(vec3 seed, int i){
+	vec4 seed4 = vec4(seed,i);
+	float dot_product = dot(seed4, vec4(12.9898,78.233,45.164,94.673));
+	return fract(sin(dot_product) * 43758.5453);
+}
+
+float applyOverlayToChannel( float base, float blend, float opacity ) {
+	float res = (base < 0.5 ? (2.0 * base * blend) : (1.0 - 2.0 * (1.0 - base) * (1.0 - blend)));
+	res *= opacity + base * ( 1. - opacity );
+	return res;
+}
+
+
+float applySoftLightToChannel( float base, float blend ) {
+	return ((blend < 0.5) ? (2.0 * base * blend + base * base * (1.0 - 2.0 * blend)) : (sqrt(base) * (2.0 * blend - 1.0) + 2.0 * base * (1.0 - blend)));
+}
+
+vec3 applyScreen( vec3 base, vec3 blend ) {
+	return (1.0 - ((1.0 - base) * (1.0 - blend)));
+}
+
+float rand(vec2 co){
+    return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+}
+
+float blendOverlay(float base, float blend) {
+	return base<0.5?(2.0*base*blend):(1.0-2.0*(1.0-base)*(1.0-blend));
+}
+
+vec3 blendOverlay(vec3 base, vec3 blend) {
+	return vec3(blendOverlay(base.r,blend.r),blendOverlay(base.g,blend.g),blendOverlay(base.b,blend.b));
+}
+
+vec3 blendOverlay(vec3 base, vec3 blend, float opacity) {
+	return (blendOverlay(base, blend) * opacity + base * (1.0 - opacity));
+}
+
+vec3 hsv2rgb(vec3 c) {
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+void main() {
+	if( shadow == 1. ) {
+		gl_FragColor = vec4( vec3( gl_FragCoord.z ), 1. );
+		return;
+	}
+
+	vec3 L = normalize( lightPosition - vPosition );
+	vec3 E = normalize(-vPosition);
+
+	vec3 n = vNormal;
+	float diffuse = max( 0., dot( L, n ) );
+	float theta = clamp( -diffuse, 0., 1. );
+    float bias = 0.005 * tan( acos( theta ) );
+    bias = clamp( bias, 0., 0.01 );
+
+    vec3 R = normalize(-reflect(L,n));
+    float spec = 4. * pow(max(dot(R,E),0.0),100.);
+
+	const int NUM_TAPS = 16;
+
+	vec2 poissonDisk[NUM_TAPS];
+	poissonDisk[0 ] = vec2( -0.94201624, -0.39906216 );
+	poissonDisk[1 ] = vec2( 0.94558609, -0.76890725 );
+	poissonDisk[2 ] = vec2( -0.094184101, -0.92938870 );
+	poissonDisk[3 ] = vec2( 0.34495938, 0.29387760 );
+	poissonDisk[4 ] = vec2( -0.91588581, 0.45771432 );
+	poissonDisk[5 ] = vec2( -0.81544232, -0.87912464 );
+	poissonDisk[6 ] = vec2( -0.38277543, 0.27676845 );
+	poissonDisk[7 ] = vec2( 0.97484398, 0.75648379 );
+	poissonDisk[8 ] = vec2( 0.44323325, -0.97511554 );
+	poissonDisk[9 ] = vec2( 0.53742981, -0.47373420 );
+	poissonDisk[10] = vec2( -0.26496911, -0.41893023 );
+	poissonDisk[11] = vec2( 0.79197514, 0.19090188 );
+	poissonDisk[12] = vec2( -0.24188840, 0.99706507 );
+	poissonDisk[13] = vec2( -0.81409955, 0.91437590 );
+	poissonDisk[14] = vec2( 0.19984126, 0.78641367 );
+	poissonDisk[15] = vec2( 0.14383161, -0.14100790 );
+
+	float occlusion = 0.;
+	vec3 shadowCoord = vShadowCoord.xyz / vShadowCoord.w;
+
+	for (int i=0; i < 4; i++) {
+		//int index = i;
+		//int index = int(mod(16.0*random(gl_FragCoord.xyy, i),16.));
+		int index = int(mod(16.0*random(floor(vPosition.xyz*1000.0), i),16.));
+		for( int j=0; j < 16; j++ ){
+			if( j==index ) {
+				occlusion += sampleVisibility( vec3( shadowCoord.xy + poissonDisk[j]/700.0, shadowCoord.z ), bias );
+			}
+		}
+	}
+	occlusion /= 4.;
+
+	spec *= diffuse*occlusion;
+	float shade = .5 + .5 * (diffuse*occlusion);
+	float rim = 1. - max( 0., abs( dot( normalize( vNormal2 ), normalize( -vPosition2 ) ) ) );
+	rim = pow(rim,2.);
+	vec3 c = hsv2rgb( vec3( vAlong, 1., shade ));
+	float s = mix( 0., .5 + .5 * cos( stripesFreq * vAlong ), stripes );
+	float stripe = smoothstep( 0., 1., s );
+	c += .5 * stripe + .5 * smoothstep( .7, 1., s );
+	gl_FragColor = vec4( c + spec ,1.);
+}
+</script>
+
+<script type="x-shader/x-vertex" id="ortho-vs" >
+precision highp float;
+
+attribute vec3 position;
+attribute vec2 uv;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+varying vec2 vUv;
+
+void main() {
+
+	vUv = uv;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1. );
+
+}
+</script>
+
+<script id="highlight-fs" type="x-shader/x-fragment">
+precision highp float;
+
+uniform sampler2D source;
+uniform float threshold;
+
+varying vec2 vUv;
+
+void main() {
+	vec4 c = texture2D( source, vUv );
+	c.xyz -= threshold;
+	gl_FragColor = vec4( c );
+}
+</script>
+
+<script id="blur-fs" type="x-shader/x-fragment">
+precision highp float;
+
+uniform vec2 resolution;
+uniform sampler2D source;
+uniform vec2 delta;
+
+varying vec2 vUv;
+
+vec4 blur5(sampler2D image, vec2 uv, vec2 resolution, vec2 direction) {
+  vec4 color = vec4(0.0);
+  vec2 off1 = vec2(1.3333333333333333) * direction;
+  color += texture2D(image, uv) * 0.29411764705882354;
+  color += texture2D(image, uv + (off1 / resolution)) * 0.35294117647058826;
+  color += texture2D(image, uv - (off1 / resolution)) * 0.35294117647058826;
+  return color;
+}
+
+vec4 blur13(sampler2D image, vec2 uv, vec2 resolution, vec2 direction) {
+  vec4 color = vec4(0.0);
+  vec2 off1 = vec2(1.411764705882353) * direction;
+  vec2 off2 = vec2(3.2941176470588234) * direction;
+  vec2 off3 = vec2(5.176470588235294) * direction;
+  color += texture2D(image, uv) * 0.1964825501511404;
+  color += texture2D(image, uv + (off1 / resolution)) * 0.2969069646728344;
+  color += texture2D(image, uv - (off1 / resolution)) * 0.2969069646728344;
+  color += texture2D(image, uv + (off2 / resolution)) * 0.09447039785044732;
+  color += texture2D(image, uv - (off2 / resolution)) * 0.09447039785044732;
+  color += texture2D(image, uv + (off3 / resolution)) * 0.010381362401148057;
+  color += texture2D(image, uv - (off3 / resolution)) * 0.010381362401148057;
+  return color;
+}
+
+void main() {
+	vec4 b  = blur5( source, vUv, resolution, delta );
+	gl_FragColor = b;
+}
+</script>
+
+<script id="bloom-fs" type="x-shader/x-fragment">
+precision highp float;
+
+uniform sampler2D base;
+uniform sampler2D level0;
+uniform sampler2D level1;
+uniform sampler2D level2;
+uniform sampler2D level3;
+uniform sampler2D level4;
+
+uniform vec2 resolution;
+uniform float boost;
+uniform float reduction;
+uniform float levels;
+
+varying vec2 vUv;
+
+#define FXAA_SPAN_MAX 8.0
+#define FXAA_REDUCE_MUL   (1.0/FXAA_SPAN_MAX)
+#define FXAA_REDUCE_MIN   (1.0/128.0)
+#define FXAA_SUBPIX_SHIFT (1.0/4.0)
+vec3 FxaaPixelShader( vec4 uv, sampler2D tex, vec2 rcpFrame) {
+    vec3 rgbNW = texture2D(tex, uv.zw ).xyz;
+    vec3 rgbNE = texture2D(tex, uv.zw + vec2(1,0)*rcpFrame.xy ).xyz;
+    vec3 rgbSW = texture2D(tex, uv.zw + vec2(0,1)*rcpFrame.xy ).xyz;
+    vec3 rgbSE = texture2D(tex, uv.zw + vec2(1,1)*rcpFrame.xy ).xyz;
+    vec3 rgbM  = texture2D(tex, uv.xy ).xyz;
+    vec3 luma = vec3(0.299, 0.587, 0.114);
+    float lumaNW = dot(rgbNW, luma);
+    float lumaNE = dot(rgbNE, luma);
+    float lumaSW = dot(rgbSW, luma);
+    float lumaSE = dot(rgbSE, luma);
+    float lumaM  = dot(rgbM,  luma);
+    float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+    float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+    vec2 dir;
+    dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
+    dir.y =  ((lumaNW + lumaSW) - (lumaNE + lumaSE));
+    float dirReduce = max(
+        (lumaNW + lumaNE + lumaSW + lumaSE) * (0.25 * FXAA_REDUCE_MUL),
+        FXAA_REDUCE_MIN);
+    float rcpDirMin = 1.0/(min(abs(dir.x), abs(dir.y)) + dirReduce);
+    dir = min(vec2( FXAA_SPAN_MAX,  FXAA_SPAN_MAX),
+          max(vec2(-FXAA_SPAN_MAX, -FXAA_SPAN_MAX),
+          dir * rcpDirMin)) * rcpFrame.xy;
+    vec3 rgbA = (1.0/2.0) * (
+        texture2D(tex, uv.xy + dir * (1.0/3.0 - 0.5) ).xyz +
+        texture2D(tex, uv.xy + dir * (2.0/3.0 - 0.5) ).xyz);
+    vec3 rgbB = rgbA * (1.0/2.0) + (1.0/4.0) * (
+        texture2D(tex, uv.xy + dir * (0.0/3.0 - 0.5) ).xyz +
+        texture2D(tex, uv.xy + dir * (3.0/3.0 - 0.5) ).xyz);
+    float lumaB = dot(rgbB, luma);
+    if((lumaB < lumaMin) || (lumaB > lumaMax)) return rgbA;
+    return rgbB;
+}
+
+void main() {
+	vec2 res = 1. / resolution;
+	vec2 uv = vUv;
+	vec4 aauv = vec4( uv, uv - (res * (0.5 + FXAA_SUBPIX_SHIFT)));
+	vec4 color = vec4(FxaaPixelShader( aauv, base, res ),1.);
+
+	if( levels > 0. ) color += texture2D( level0, vUv );
+	if( levels > 1. ) color += texture2D( level1, vUv );
+	if( levels > 2. ) color += texture2D( level2, vUv );
+	if( levels > 3. ) color += texture2D( level3, vUv );
+	if( levels > 4. ) color += texture2D( level4, vUv );
+
+	vec2 position = vUv - .5;
+	float vignette = length( position );
+    vignette = boost - vignette * reduction;
+
+    color.rgb *= vignette;
+
+	gl_FragColor = color;
+}
+</script>
+
+<script>
+
+'use strict';
+
+var container, renderer, camera, controls, scene;
+var mesh;
+
+var helper;
+
+var container = document.getElementById( 'container' );
+var shadowCamera, shadowBuffer;
+var size = 1024;
+var baseFBO;
+
+var bloom;
+var backdrop;
+
+var Params = function() {
+	this.curve = 4;
+	this.length = .5;
+	this.stripes = true;
+	this.stripesFreq = 50;
+	this.speed = 1;
+	this.taper = false;
+};
+var params = new Params();
+
+function initScene() {
+
+	baseFBO = new THREE.WebGLRenderTarget( 1, 1, {
+		wrapS: THREE.ClampToEdgeWrapping,
+		wrapT: THREE.ClampToEdgeWrapping,
+		format: THREE.RGBAFormat,
+		type: THREE.HalfFloatType,
+		minFilter: THREE.LinearFilter,
+		magFilter: THREE.LinearFilter,
+		stencilBuffer: false,
+		depthBuffer: true
+	});
+
+	baseFBO.generateMipMaps = false;
+
+	helper.attach( baseFBO, 'base' );
+
+	var s = 4;
+	shadowCamera = new THREE.OrthographicCamera( -s, s, s, -s, .1, 10 );
+	shadowCamera.position.set( 2.4, 4, 0 );
+	shadowCamera.lookAt( scene.position );
+
+	shadowBuffer = new THREE.WebGLRenderTarget( size, size, {
+		wrapS: THREE.ClampToEdgeWrapping,
+		wrapT: THREE.ClampToEdgeWrapping,
+		format: THREE.RGBAFormat,
+		type: THREE.FloatType,
+		minFilter: THREE.LinearMipMapLinearFilter,
+		magFilter: THREE.LinearMipMapLinearFilter,
+		stencilBuffer: false,
+		depthBuffer: true
+	});
+
+	helper.attach( shadowBuffer, 'shadow' );
+
+	var segments = 100;
+	var geometry = new THREE.CylinderBufferGeometry(1,1,1,18,segments);
+	var material = new THREE.RawShaderMaterial({
+		uniforms: {
+			curve: { type: 'f', value: 0 },
+			segments: { type: 'f', value: segments },
+			splineLength: { type: 'f', value: .25 },
+			speed: { type: 'f', value: 1 },
+			taper: { type: 'f', value: 1 },
+			time: { type: 'f', value: 0 },
+			radius: { type: 'f', value: .5 },
+			depthTexture: { type: 't', value: null },
+			shadowMVP: { type: 'm4', value: new THREE.Matrix4() },
+			shadowV: { type: 'm4', value: new THREE.Matrix4() },
+			shadowP: { type: 'm4', value: new THREE.Matrix4() },
+			shadow: { type: 'f', value: 0 },
+			lightPosition: { type: 'v3', value: shadowCamera.position },
+			ambient: { type: 'c', value: new THREE.Color(0x998ebf) },
+			stripes: { type: 'f', value: 0 },
+			stripesFreq: { type: 'f', value: 50 }
+		},
+		vertexShader: document.getElementById( 'tube-vs' ).textContent,
+		fragmentShader: document.getElementById( 'tube-fs' ).textContent,
+		side: THREE.DoubleSide
+	});
+
+	mesh = new THREE.Mesh( geometry, material );
+	scene.add(mesh);
+
+	var light = new THREE.Mesh(
+		new THREE.BoxBufferGeometry(.1,.1,.1),
+		new THREE.MeshBasicMaterial({color:0xffffff})
+	);
+	light.position.copy(shadowCamera.position);
+	//scene.add(light);
+
+	var backGeometry = new THREE.IcosahedronBufferGeometry(20,4);
+	var backMaterial = new THREE.RawShaderMaterial({
+		uniforms: {
+			top: { type: 'c', value: new THREE.Color(0x998ebf) },
+			bottom: { type: 'c', value: new THREE.Color(0x3f3f55) },
+			lightPosition: { type: 'v3', value: shadowCamera.position }
+		},
+		vertexShader: document.getElementById( 'backdrop-vs' ).textContent,
+		fragmentShader: document.getElementById( 'backdrop-fs' ).textContent,
+		side: THREE.BackSide,
+		depthWrite: false
+	});
+	backdrop = new THREE.Mesh(backGeometry,backMaterial );
+	scene.add(backdrop);
+
+	bloom = new Bloom(5);
+
+}
+
+function init() {
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 100 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 0, 4, 8 );
+	camera.lookAt( camera.target );
+	scene.add( camera );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0, 1 );
+	container.appendChild( renderer.domElement );
+
+	helper = new FBOHelper(renderer);
+	helper.show(false);
+
+	addCommonUI(renderer.domElement);
+
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	initScene();
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	var gui = new dat.GUI();
+	gui.add(params, 'length', 0, 1 ).listen();
+	gui.add(params, 'speed', 0, 2 ).listen();
+	gui.add(params, 'stripes' ).listen();
+	gui.add(params, 'stripesFreq', 0, 100 ).listen();
+	gui.add(params, 'taper' );
+	gui.add(params, 'curve', { Helix: 0, Viviani: 1, knot: 2, grannyKnot: 3, treeFoilKnot: 4, torusknot: 5, cinquefoilKnot: 6 } );
+
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+	var dPR = window.devicePixelRatio;
+	baseFBO.setSize( w * dPR, h * dPR );
+	bloom.setSize( w * dPR, h * dPR );
+
+	helper.refreshFBO(baseFBO);
+	helper.refreshFBO(shadowBuffer);
+
+	helper.setSize(w,h);
+
+}
+
+var tmpVector = new THREE.Vector3();
+var tmpMatrix = new THREE.Matrix4();
+
+function animate() {
+
+	requestAnimationFrame( animate );
+
+	controls.update();
+
+	backdrop.position.copy( camera.position );
+
+	mesh.material.uniforms.curve.value = params.curve;
+	mesh.material.uniforms.splineLength.value = params.length;
+	mesh.material.uniforms.stripes.value = params.stripes?1:0;
+	mesh.material.uniforms.stripesFreq.value = params.stripesFreq;
+	mesh.material.uniforms.speed.value = params.speed;
+	mesh.material.uniforms.taper.value = params.taper?1:0;
+	mesh.material.uniforms.time.value = .001 * performance.now();
+
+	mesh.material.uniforms.depthTexture.value = null;
+	mesh.material.uniforms.shadow.value = true;
+	renderer.render( scene, shadowCamera, shadowBuffer );
+	mesh.material.uniforms.depthTexture.value = shadowBuffer.texture;
+	mesh.material.uniforms.shadow.value = false;
+
+	tmpVector.copy( scene.position );
+	tmpVector.sub( shadowCamera.position );
+	tmpVector.normalize();
+	tmpMatrix.copy( shadowCamera.projectionMatrix );
+	tmpMatrix.multiply( mesh.matrixWorld );
+	tmpMatrix.multiply( shadowCamera.matrixWorldInverse);
+	mesh.material.uniforms.shadowMVP.value.copy( tmpMatrix );
+	mesh.material.uniforms.shadowP.value.copy( shadowCamera.projectionMatrix );
+	mesh.material.uniforms.shadowV.value.copy( shadowCamera.matrixWorldInverse );
+
+	renderer.render( scene, camera, baseFBO );
+	bloom.render();
+
+	helper.update();
+
+}
+
+window.addEventListener( 'load', init );
+
+</script>
+
+	</body>
+</html>
