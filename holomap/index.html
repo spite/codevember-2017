@@ -338,7 +338,7 @@ void main() {
 	vec3 b = mix(texture2D( blur, vUv, 4. ).rgb, texture2D( blur2, vUv, 4. ).rgb,.5);
 	vec3 color = blendScreen( a, b, 1. );
 
-	vec2 position = ( gl_FragCoord.xy / resolution ) - .5;
+	vec2 position = vUv - .5;
 	float vignette = length( position );
     vignette = boost - vignette * reduction;
 

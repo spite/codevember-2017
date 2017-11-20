@@ -282,7 +282,7 @@ void main() {
 	vec4 color = mix( FxaaPixelShader( vUv, inputTexture ), texture2D( blurredTexture, vUv ), depth );
 	color += .1 * texture2D( depthTexture, vUv ).b;
 
-    vec2 position = ( gl_FragCoord.xy / resolution ) - .5;
+    vec2 position = vUv - .5;
 	float vignette = length( position );
     vignette = boost - vignette * reduction;
 

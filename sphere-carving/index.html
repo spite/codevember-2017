@@ -207,7 +207,7 @@ void main() {
 
 	color.rgb = finalLevels(color.rgb, 0.0/255.0, 1.28, 191.0/255.0);
 
-    vec2 position = ( gl_FragCoord.xy / resolution ) - .5;
+    vec2 position = vUv - .5;
 	float vignette = length( position );
     vignette = boost - vignette * reduction;
 
