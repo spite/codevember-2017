@@ -806,7 +806,6 @@ function calcSafeFrame() {
 	if( s < .01 ) s = .01;
 
 	safeRadius += ( s - safeRadius ) * .1;
-	safeRadius = s;
 
 	var width = 2.5 * radius;
 	var height = 2.5 * radius;
@@ -1156,7 +1155,7 @@ function animate() {
 		renderer.render( scene, camera );
 	}
 
-	capturer.capture(renderer.domElement);
+	//capturer.capture(renderer.domElement);
 	helper.update();
 
 }
