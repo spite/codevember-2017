@@ -39,7 +39,7 @@ EquirectangularToCubemap.prototype.convert = function( source, size ) {
 	this.camera = new THREE.CubeCamera( 1, 100000, mapSize );
 	this.material.map = source;
 
-	this.camera.updateCubeMap( this.renderer, this.scene );
+	this.camera.update( this.renderer, this.scene );
 
 	return this.camera.renderTarget.texture;
 
