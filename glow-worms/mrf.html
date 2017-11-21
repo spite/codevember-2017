@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>TITLE - Codevember 2017</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
+			<h1>#. TITLE</h1>
+			<p>Lorem ipsum</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+
+<script>
+
+'use strict';
+// Minimally Rotating Frames ( refresh early and often :) )
+// WestLangley
+
+// based on THREE.TorusKnotGeometry
+THREE.TubeGeometry = function ( radius, segmentsR, segmentsT, callback ) {
+
+    THREE.Geometry.call( this );
+
+    var scope = this;
+
+    this.radius = radius;
+    this.segmentsR = segmentsR;
+    this.segmentsT = segmentsT;
+    this.callback = callback;
+
+    this.grid = new Array( this.segmentsR );
+
+    var tang = new THREE.Vector3();
+    var n = new THREE.Vector3();
+    var binormal = new THREE.Vector3();
+
+    for ( var i = 0; i < this.segmentsR; ++ i ) {    // rings
+
+        this.grid[ i ] = new Array( this.segmentsT );
+
+        var u = i / this.segmentsR;
+
+        var p1 = callback( u );
+        var p2 = callback( u + 0.01 );
+
+        tang.sub( p2, p1 );
+
+        // ----------------------------------------------------------------------------
+        if (i == 0) n = p1.clone().normalize(); // HACK -- needs some work
+        // ----------------------------------------------------------------------------
+
+        // bad things can happen if the tangent points up
+        // probably should be looked at in TorusKnotGeometry, too.
+
+        binormal.cross( tang, n );
+        n.cross( binormal, tang );
+        binormal.normalize();
+        n.normalize();
+        addArrow( scene, p1, n, 2, 0xffff00 );
+
+        for ( var j = 0; j < this.segmentsT; ++ j ) {    // theta
+
+            var v = j / this.segmentsT * 2 * Math.PI;
+
+            var cx = - this.radius * Math.cos( v ); // TODO: Hack: Negating it so it faces outside.
+            var cy = this.radius * Math.sin( v );
+
+            this.grid[ i ][ j ] = vert( p1.x + cx * n.x + cy * binormal.x,
+                                        p1.y + cx * n.y + cy * binormal.y,
+                                        p1.z + cx * n.z + cy * binormal.z
+                                      );
+
+        }
+
+    }
+
+    for ( var i = 0; i < this.segmentsR - 1; ++ i ) {
+
+        for ( var j = 0; j < this.segmentsT; ++ j ) {
+
+            var ip = ( i + 1 ) % this.segmentsR;
+            var jp = ( j + 1 ) % this.segmentsT;
+
+            var a = this.grid[ i ][ j ];
+            var b = this.grid[ ip ][ j ];
+            var c = this.grid[ ip ][ jp ];
+            var d = this.grid[ i ][ jp ];
+
+            var uva = new THREE.Vector2( i / this.segmentsR, j / this.segmentsT );
+            var uvb = new THREE.Vector2( ( i + 1 ) / this.segmentsR, j / this.segmentsT );
+            var uvc = new THREE.Vector2( ( i + 1 ) / this.segmentsR, ( j + 1 ) / this.segmentsT );
+            var uvd = new THREE.Vector2( i / this.segmentsR, ( j + 1 ) / this.segmentsT );
+
+            this.faces.push( new THREE.Face4( a, b, c, d ) );
+            this.faceVertexUvs[ 0 ].push( [ uva, uvb, uvc, uvd ] );
+
+        }
+    }
+
+    //this.computeCentroids();
+    this.computeFaceNormals();
+    this.computeVertexNormals();
+
+    function vert( x, y, z ) {
+
+        return scope.vertices.push( new THREE.Vertex( new THREE.Vector3( x, y, z ) ) ) - 1;
+        // what on earth is this -1 ???
+
+    }
+
+};
+
+THREE.TubeGeometry.prototype = new THREE.Geometry();
+THREE.TubeGeometry.prototype.constructor = THREE.TubeGeometry;
+
+// -----------------------------------------------------------------------------
+// Setup Scene
+// -----------------------------------------------------------------------------
+
+// dom
+var container = document.createElement( 'div' );
+document.body.appendChild( container );
+
+// renderer
+var renderer = new THREE.WebGLRenderer( { clearColor: 0x000000, clearAlpha: 1 } );
+renderer.setSize( window.innerWidth, window.innerHeight );
+container.appendChild( renderer.domElement );
+
+// scene
+var scene = new THREE.Scene();
+
+// camera
+var camera = new THREE.PerspectiveCamera( 30, window.innerWidth / window.innerHeight, 1, 1000 );
+camera.position.set(40, 15, 40);
+camera.lookAt( scene.position );
+scene.add( camera );
+
+// ambient light
+var ambient = new THREE.AmbientLight( 0x555555 );
+scene.add( ambient );
+
+// directional light
+var directionalLight = new THREE.DirectionalLight( 0xaaaaaa, 1.0 );
+directionalLight.position.set(1, 1, 1).normalize();
+scene.add( directionalLight );
+
+// directional light
+var directionalLight = new THREE.DirectionalLight( 0xaaaaaa, 1.0 );
+directionalLight.position.set(-1, -1, -1).normalize();
+scene.add( directionalLight );
+
+// axes
+var axes = new THREE.AxisHelper()
+scene.add( axes );
+
+// material params
+var params = {
+    color: 0xff0000,
+    ambient: 0xff0000,
+    specular: 0x555555,
+    shininess: 50,
+    shading: THREE.FlatShading,
+    wireframe: false
+};
+
+// material
+//var material = new THREE.MeshBasicMaterial( params );
+//var material = new THREE.MeshLambertMaterial( params );
+var material = new THREE.MeshPhongMaterial( params );
+
+// path
+var points = [];
+for( var i = 0; i < 4; i++ ) {
+    points.push( new THREE.Vector3( Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5 ).multiplyScalar( 20 ) );
+}
+var path = new THREE.CubicBezierCurve3( points[0], points[1], points[2], points[3] );
+
+// callback
+function func( t ) {
+    //return new THREE.Vector3( Math.cos(10*t), 2*Math.sin(10*t), (t+ Math.sin(20*t)) ).multiplyScalar(5);
+    return path.getPoint( t );
+}
+
+// geometry
+var geometry = new THREE.TubeGeometry( 1, 32, 8, func ); // radius, segR, segT, callback( t )
+
+// object
+var mesh = new THREE.Mesh( geometry, material );
+mesh.position.set(0, 0, 0);
+//mesh.flipSided = true;
+mesh.doubleSided = true;
+scene.add( mesh );
+
+// render
+renderer.render( scene, camera );
+
+// listener
+document.addEventListener( 'mousemove', onDocumentMouseMove, false );
+
+// event handlers
+function onDocumentMouseMove( event ) {
+
+    var mouse = { x: 0, y: 0 };
+    mouse.x = 2 * event.clientX / window.innerWidth  - 1;
+    mouse.y = 2 * event.clientY / window.innerHeight - 1;
+
+    // rotate camera
+    camera.position.set( 40 * Math.cos( 10 * mouse.x ), 15, 40 * Math.sin( 10 * mouse.x ) );
+    camera.lookAt( scene.position );
+
+    renderer.render( scene, camera );
+
+}
+
+function addArrow( obj, origin, dir, scale, color ) {
+
+    // parent
+    var arrow = new THREE.Object3D();
+
+    // line
+    var lineGeometry = new THREE.Geometry();
+    lineGeometry.vertices.push( new THREE.Vertex() );
+    lineGeometry.vertices.push( new THREE.Vertex( new THREE.Vector3( 0, 1, 0 ) ) );
+    var line = new THREE.Line( lineGeometry, new THREE.LineBasicMaterial( { color : color } ) );
+    arrow.add( line );
+
+    // tip
+    var coneGeometry = new THREE.CylinderGeometry( 0, .05, .25, 5, 1 );
+    var cone = new THREE.Mesh( coneGeometry, new THREE.MeshBasicMaterial( { color : color } ) );
+    cone.position.set( 0, 1, 0 );
+    arrow.add( cone );
+
+    // position
+    arrow.position.copy( origin );
+
+    // orientation - object matrix
+    var axis = new THREE.Vector3( 0, 1, 0 ).cross( dir );
+    var radians = Math.acos( new THREE.Vector3( 0, 1, 0 ).dot( dir.normalize() ) );
+    var rotationMatrix = new THREE.Matrix4();
+    rotationMatrix.makeRotationAxis( axis.normalize(), radians );
+    arrow.matrix.multiply( rotationMatrix );
+
+    // orientation - euler rotation vector
+
+    var p = new THREE.Vector3();
+    var q = new THREE.Quaternion();
+    var s = new THREE.Vector3();
+    arrow.matrix.decompose(p,q,s);
+    arrow.rotation.copy(q);
+
+    // scale
+    arrow.scale.set( scale, scale, scale );
+
+    // add child
+    obj.add( arrow );
+
+}
+
+
+
+</script>
+
+	</body>
+</html>
