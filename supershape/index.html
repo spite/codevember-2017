@@ -17,7 +17,7 @@
 			<h1>11. SuperShape</h1>
 			<p>A GPU supershape experiment. <b>This one is very heavy, your GPU will suffer!</b> there´s lots of room for performance improvement :|</p>
 			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out.</p>
-			<p>Press <b>space</b> to morph into another shape.</p>
+			<p>Press <b>space</b>, <b>double click</b> or <b>tap</b> to morph into another shape.</p>
 			<p>Open <b>Controls</b> to play with the settings!</p>
 			<p id="moreDetails"><b>More details...</b></p>
 		</div>
@@ -26,6 +26,7 @@
 				<h1>Details</h1>
 				<p>Based on <a href="https://www.youtube.com/watch?v=ARK4xeIR2BM" >Superformula driven by Signal Generators</a>, which has been number 1 in my favorites in YT since I first saw it.</p>
 				<p>The shape is computed in the vertex shader. Shading has per-fragment lambert and specular lighting, 12-tap poisson sampled shadowmapping and environment mapping. Post-processing performs bloom, FXAA and vignetting and a bit of noise.</p>
+				<p>I'm pretty sure there's something wrong in my implementation of the supershape, there´s too many degenerate cases, and some parameters that should create a specific shape are wrong.</p>
 				<p>Built with <a href="threejs.org">three.js</a>, <a href="https://github.com/spite/Maf.js/">Maf.js</a> and <a href="https://workshop.chromeexperiments.com/examples/gui/#1--Basic-Usage" >dat.gui</a>, with resources from <a href="http://paulbourke.net/geometry/supershape/" >Paul Bourke</a>, <a href="https://github.com/Jam3/glsl-fast-gaussian-blur">Jam3</a> and <a href="https://github.com/hughsk/">Hugh Kennedy</a>.</p>
 				<p>Code available on <a href="https://github.com/spite/codevember-2017/tree/master/supershape" >GitHub</a>.</p>
 				<h1>Controls</h1>
@@ -916,7 +917,9 @@ function init() {
 
 	controls = new THREE.OrbitControls( camera, renderer.domElement );
 
+	var hasChanged = false;
 	controls.addEventListener( 'change', function(e) {
+		hasChanged = true;
 		fitCamera();
 	});
 
@@ -925,9 +928,26 @@ function init() {
 
 	window.addEventListener( 'resize', onWindowResized );
 
+	window.addEventListener( 'dblclick', function(e) {
+		animateShape();
+		onUpdated();
+	} );
+
+
+	window.addEventListener( 'touchstart', function(e) {
+		hasChanged = false;
+	} );
+
+	window.addEventListener( 'touchend', function(e) {
+		if(!hasChanged) {
+			animateShape();
+			onUpdated();
+		}
+	} );
+
 	window.addEventListener( 'keydown', function(e) {
 		if ( e.keyCode == 32 ) {
-			animateShape();//params.randomize();
+			animateShape();
 			onUpdated();
 		}
 	} );
