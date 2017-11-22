@@ -27,7 +27,25 @@
 				<p>A reimplementation of the Polygon Shredder using instancing, adding some of the features I was missing from the first version: different geometries to move around and a bit of postprocessing.</p>
 				<p>The curl noise is perform in two textures, ping-ponging the simulation. Both textures are used as current and previous positions to reorient the instanced mesh. Shadow mapping, diffuse and specular lighting is applied. A post processing pass of bloom, fxaa and vignette is finally applied.</p>
 				p>Built with <a href="threejs.org">three.js</a>, <a href="https://github.com/spite/Maf.js/">Maf.js</a> and <a href="https://workshop.chromeexperiments.com/examples/gui/#1--Basic-Usage" >dat.gui</a>.</p>
-				<p>Code available on <a href="https://github.com/spite/codevember-2017/tree/master/shredder-redux" >GitHub</a>.</p>
+				<p>Code available on <a href="https://github.com/spite/codevember-2017/tree/master/shredder-redux/index.html" >GitHub</a>.</p>
+				<h1>Controls</h1>
+				<p>Play with the params:</p>
+				<ul>
+					<li><b>Persistence</b>: dispersion of the curl noise.</li>
+					<li><b>Speed</b>: speed of the particles.</li>
+					<li><b>Decay</b>: life of the particles.</li>
+					<li><b>Animate</b>: toggles animation.</li>
+				</ul>
+				<ul>
+					<li><b>Mesh</b>: choose the mesh to draw as particles.</li>
+					<li><b>Scale</b>: global scale of the particle.</li>
+					<li><b>ScaleX</b>: scale of the particle in X axis.</li>
+					<li><b>ScaleY</b>: scale of the particle in Y axis.</li>
+					<li><b>ScaleZ</b>: scale of the particle in Z axis.</li>
+					<li><b>Squashiness</b>: how it deforms when moving fast.</li>
+					<li><b>DrawRange</b>: control how many particles to draw.</li>
+					<li><b>Post</b>: toggle post processing.</li>
+				</ul>
 				<a href="#" id="close-details">Close</a>
 			</div>
 		</div>
@@ -41,7 +59,8 @@
 		<script src="../js/Bloom.js"></script>
 		<script src="../js/Backdrop.js"></script>
 		<script src="../js/dat.gui.min.js"></script>
-		<script src="../js/CCapture.all.min.js"></script>
+		<script src="../js/isMobile.min.js"></script>
+		<!--<script src="../js/CCapture.all.min.js"></script>-->
 
 <script type="x-shader/x-vertex" id="backdrop-vs" >
 precision highp float;
@@ -603,7 +622,7 @@ void main() {
 
 'use strict';
 
-var capturer = new CCapture( {
+/*var capturer = new CCapture( {
 	verbose: false,
 	display: true,
 	framerate: 60,
@@ -617,7 +636,7 @@ var capturer = new CCapture( {
 
 function capture() {
 	capturer.start();
-}
+}*/
 
 var container, renderer, camera, controls, scene;
 var mesh;
@@ -628,8 +647,8 @@ var container = document.getElementById( 'container' );
 var simulation;
 
 var shadowCamera, shadowBuffer;
-var shadowMapSize = 1024;
-var floatType = THREE.FloatType;
+var shadowMapSize = isMobile.any?512:1024;
+var floatType = isMobile.any?THREE.HalfFloatType:THREE.FloatType;
 var resolution = new THREE.Vector2();
 var baseFBO;
 var backdrop, bloom;
@@ -637,6 +656,11 @@ var backdropScene, backdropCamera;
 
 var width = 256;
 var height = 256;
+
+if (isMobile.any) {
+	width = 128;
+	height = 128;
+}
 
 function setGeometry( id ) {
 
@@ -939,7 +963,7 @@ function animate() {
 		renderer.render( scene, camera );
 	}
 
-	capturer.capture(renderer.domElement);
+	//capturer.capture(renderer.domElement);
 	helper.update();
 
 }
