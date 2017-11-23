@@ -1,4 +1,4 @@
-<!doctype html>
+f<!doctype html>
 <html lang="en">
 	<head>
 		<title>Shredder Redux - Codevember 2017</title>
@@ -13,7 +13,7 @@
 
 		<div id="container"></div>
 		<div id="info" >
-			<p><a href="../supershape" >Previous</a> <!--| <a href="../n" >Next</a>--></p>
+			<p><a href="../supershape" >Previous</a> | <a href="../bonkey-balls" >Next</a></p>
 			<h1>12. Shredder Redux</h1>
 			<p>A reimplementation of the Polygon Shredder using instancing, adding some of the features I was missing from the first version: different geometries to move around and a bit of postprocessing.</p>
 			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out.</p>
@@ -833,7 +833,7 @@ function init() {
 	scene.add( camera );
 	backdropCamera = camera.clone();
 
-	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer = new THREE.WebGLRenderer( { antialias: true } );
 	renderer.setPixelRatio( window.devicePixelRatio );
 	renderer.setClearColor( 0, 0 );
 	container.appendChild( renderer.domElement );
