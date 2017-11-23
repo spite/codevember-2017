@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>Bonkey Balls - Codevember 2017</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+		<style>#info{ color: black; text-shadow: 0 1px 0 rgba(255,255,255,.4); }</style>
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../shredder-redux" >Previous</a> <!--| <a href="../n" >Next</a>--></p>
+			<h1>13. Bonkey Balls</h1>
+			<p>Some balls bonking each other. Yes. A practice on nice-looking shading.</p>
+			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out. Press <b>Space</b> or <b>tap</b> to bump the balls.</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Some balls bonking each other. Yes. A practice on nice-looking shading.</p>
+				<p>The idea was also to add inter-sphere reflections, but it didn't look too convincing.</p>
+				<p>All in a single draw of instanced highly tessellated icosahedron spheres.</p>
+				<p>Ambient Occlusion is from <a href="http://www.iquilezles.org/www/articles/sphereao/sphereao.htm" >sphere ambient occlusion</a>, soft shadows from <a href="http://www.iquilezles.org/www/articles/sphereshadow/sphereshadow.htm" >sphere soft shadow</a> and functions from the ShaderToy toolbox, all by <a href="https://twitter.com/iquilezles" >Íñigo Quílez</a>.</p>
+				<p>Physics by <a href="http://lo-th.github.io/Oimo.js/" >Oimo.js</a>, running in CPU and updating the attributes buffers.</p>
+				<p>Built with <a href="threejs.org">three.js</a>.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+		<script src="../js/Maf.js"></script>
+		<script src="../js/oimo.js"></script>
+		<!--<script src="../js/CCapture.all.min.js"></script>-->
+
+<script type="x-vertex/x-shader" id="spheres-vs" >
+precision highp float;
+
+#define SPHERES 30
+
+attribute vec3 position;
+attribute vec3 normal;
+attribute vec2 uv;
+attribute vec4 rotation;
+
+attribute vec3 offset;
+attribute float size;
+attribute float id;
+
+uniform mat3 normalMatrix;
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+uniform vec3 cameraPosition;
+
+uniform vec4 spheres[ SPHERES ];
+uniform vec4 extra[ SPHERES ];
+uniform vec3 lightDir1;
+uniform vec3 lightDir2;
+uniform float time;
+
+varying float vOcclusion;
+varying float vShading;
+varying vec3 vNormal;
+varying vec3 vPosition;
+varying vec3 vViewPosition;
+varying vec4 vMVPosition;
+varying float vContacts;
+
+mat3 calcLookAtMatrix(vec3 origin, vec3 target, float roll) {
+	vec3 rr = vec3(sin(roll), cos(roll), 0.0);
+	vec3 ww = normalize(target - origin);
+	vec3 uu = normalize(cross(ww, rr));
+	vec3 vv = normalize(cross(uu, ww));
+
+	return mat3(uu, vv, ww);
+}
+
+mat4 rotationMatrix(vec3 axis, float angle)
+{
+    axis = normalize(axis);
+    float s = sin(angle);
+    float c = cos(angle);
+    float oc = 1.0 - c;
+
+    return mat4(oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
+                oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,  0.0,
+                oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c,           0.0,
+                0.0,                                0.0,                                0.0,                                1.0);
+}
+
+float intSphere( vec3 p1, vec3 p2, vec3 sc, float r ) {
+
+	vec3 rd = normalize( p2 - p1 );
+
+	float b = dot( rd, p1 - sc );
+    float c = distance( p1, sc) - ( r * r );
+    float d = b * b - c;
+
+    if (d < 0.0) {
+        return -1.0;
+    }
+    return -b - sqrt(d);
+
+}
+
+float sphSoftShadow( in vec3 ro, in vec3 rd, in vec4 sph, in float k ) {
+
+    vec3 oc = ro - sph.xyz;
+    float b = dot( oc, rd );
+    float c = dot( oc, oc ) - sph.w*sph.w;
+    float h = b*b - c;
+
+    return (b>0.0) ? step(-0.0001,c) : smoothstep( 0.0, 1.0, h*k/b );
+}
+
+float sphOcclusion( in vec3 pos, in vec3 nor, in vec4 sph )
+{
+    vec3  r = sph.xyz - pos;
+    float l = length(r);
+    float d = dot(nor,r);
+    float res = d;
+
+    if( d<sph.w ) res = pow(clamp((d+sph.w)/(2.0*sph.w),0.0,1.0),1.5)*sph.w;
+
+    return clamp( res*(sph.w*sph.w)/(l*l*l), 0.0, 1.0 );
+
+}
+
+float sphShadow( in vec3 ro, in vec3 rd, in vec4 sph )
+{
+    vec3 oc = ro - sph.xyz;
+    float b = dot( oc, rd );
+    float c = dot( oc, oc ) - sph.w*sph.w;
+    return step( min( -b, min( c, b*b - c ) ), 0.0 );
+}
+
+/*vec3 applyQuaternion(vec3 p, vec4 quat) {
+	vec3 res = p;
+	vec3 vcV = cross( quat.xyz, res );
+	res = vcV * ( 2.0 * quat.w ) + ( cross( quat.xyz, vcV ) * 2.0 + res );
+	return res;
+}*/
+
+vec3 applyQuaternion( vec3 vec, vec4 quat )
+{
+return vec + 2.0 * cross( cross( vec, quat.xyz ) + quat.w * vec, quat.xyz );
+}
+
+vec3 rotate(vec3 p, vec3 rot) {
+  mat3 mx = mat3(
+    1.0, 0.0, 0.0,
+    0.0, cos(rot.x), -sin(rot.x),
+    0.0, sin(rot.x), cos(rot.x)
+  );
+  mat3 my = mat3(
+    cos(rot.y), 0.0, sin(rot.y),
+    0.0, 1.0, 0.0,
+    -sin(rot.y), 0.0, cos(rot.y)
+  );
+  mat3 mz = mat3(
+    cos(rot.z), -sin(rot.z), 0.0,
+    sin(rot.z), cos(rot.z), 0.0,
+    0.0, 0.0, 1.0
+  );
+  return mx * my * mz * p;
+}
+
+
+void main() {
+
+	float scale;
+	int iid = int(id);
+	for( int i = 0; i < SPHERES; i++ ) {
+		if ( i == iid ) {
+			scale = extra[iid].x;
+		}
+	}
+
+	//vec3 s = vec3( 1./scale, 1./scale, scale );
+	//vec3 p = position * size * vec3( 1./scale, 1./scale, scale ) + offset;
+	vec3 p = position * size + offset;
+	vPosition = rotate( position, rotation.xyz );
+
+	vOcclusion = 1.;
+
+	vec4 worldPosition = ( modelMatrix * vec4( p, 1. ) );
+	vec3 nWorld = normalize( mat3( modelMatrix[0].xyz, modelMatrix[1].xyz, modelMatrix[2].xyz ) * normal );
+	vec3 on = normalize( nWorld );
+
+	vNormal = normalMatrix * normal;
+	vec4 mvPosition = modelViewMatrix * vec4( p, 1. );
+	vViewPosition = mvPosition.xyz;
+
+	float shadow = 1.;
+
+	//float diffuse = mix( clamp( dot( on, lightDir1 ), 0., 1. ), clamp( dot( on, lightDir1 ), 0., 1. ), .5);
+	float diffuse = clamp( dot( on, lightDir1 ), 0., 1. );
+	float reflection = 1.;
+
+	vec3 E = normalize(mvPosition.xyz-cameraPosition.xyz);
+	vec3 R = normalize(-reflect(E,vNormal));
+	//vec3 vReflect = normalize( reflect( normalize( worldPosition.xyz - cameraPosition ), nWorld ) );
+
+	for( int i = 0; i < SPHERES; i++ ) {
+
+		if ( i == iid ) {
+			vContacts = extra[iid].w;
+		}
+		if( i != iid ) {
+
+			vOcclusion *= 1. - sphOcclusion(worldPosition.xyz,nWorld,spheres[i]);
+
+			shadow *= sphSoftShadow( worldPosition.xyz, lightDir1, spheres[ i ], 2. );
+			//shadow *= sphSoftShadow( worldPosition.xyz, lightDir2, spheres[ i ], 2. );
+
+			//reflection *= sphShadow( worldPosition.xyz, vReflect, spheres[ i ] );
+
+		}
+
+	}
+
+	//vReflection = reflection;
+
+	vOcclusion = vOcclusion*0.5 + 0.5*vOcclusion*vOcclusion;
+	vOcclusion = .5 + .5 * vOcclusion;
+
+	vMVPosition = mvPosition;
+
+	vShading = diffuse * clamp( shadow, 0., 1. );
+
+	gl_Position = projectionMatrix * mvPosition;
+
+
+}
+</script>
+
+<script type="x-vertex/x-fragment" id="spheres-fs" >
+#extension GL_OES_standard_derivatives : enable
+
+precision highp float;
+
+uniform vec3 lightDir1;
+uniform vec3 lightDir2;
+uniform sampler2D normalMap;
+
+varying float vOcclusion;
+varying float vShading;
+varying vec3 vNormal;
+varying vec3 vViewPosition;
+varying vec3 vPosition;
+varying vec4 vMVPosition;
+varying float vContacts;
+
+#define PI 3.1415926535897932384626433832795
+
+float stripe( float y ) {
+
+	//return smoothstep( .4, .6, .5 + .5 * sin( 7.5 * y ) );
+	return smoothstep( .45, .55, .5 + .5 * sin( 3.1 * ( y + .5 ) * 2. * PI ) );
+}
+
+vec2 pattern( vec3 p ) {
+
+	float e = .0001;
+
+	float prev = stripe( p.y +  e );
+	float cur = stripe( p.y );
+
+	return vec2( cur, prev - cur );
+
+}
+
+vec3 perturbNormalArb( vec3 surf_pos, vec3 surf_norm, vec2 dHdxy ) {
+
+	vec3 vSigmaX = dFdx( surf_pos );
+	vec3 vSigmaY = dFdy( surf_pos );
+	vec3 vN = surf_norm;
+
+	vec3 R1 = cross( vSigmaY, vN );
+	vec3 R2 = cross( vN, vSigmaX );
+
+	float fDet = dot( vSigmaX, R1 );
+
+	vec3 vGrad = sign( fDet ) * ( dHdxy.x * R1 + dHdxy.y * R2 );
+	return normalize( abs( fDet ) * surf_norm - vGrad );
+
+}
+
+void main() {
+
+	vec2 p = pattern(vPosition);
+
+	vec3 n = normalize(vNormal);
+	vec3 c = mix(vec3(1.),vec3(1.,0.,0.),vContacts);
+    vec3 color = mix(vec3(1.),vec3(.9), smoothstep( .45, .55, p.x) );
+    n = perturbNormalArb(-vViewPosition,n, vec2(0.,p.y));
+
+	vec3 E = normalize(-vViewPosition.xyz);
+	vec3 R = normalize(-reflect(lightDir1,n));
+	vec3 R2 = normalize(-reflect(lightDir2,n));
+
+    //float specular = mix( 1. * pow(max(dot(R,E),0.0),100.),1. * pow(max(dot(R2,E),0.0),100.),.5);
+    float specular = 1. * pow(max(dot(R,E),0.0),100.);
+    float rim = max( 0., abs( dot( normalize(vNormal), normalize( -vMVPosition.xyz ) ) ) );
+    float occlusion = vOcclusion;
+    float shading = vShading + ( 1. - rim ) * occlusion;
+
+	gl_FragColor = vec4( color * vec3( occlusion * ( .5 + .5 * shading ) ) + specular * occlusion * vShading, 1. );
+
+}
+</script>
+
+<script>
+
+'use strict';
+
+/*var capturer = new CCapture( {
+	verbose: false,
+	display: true,
+	framerate: 60,
+	motionBlurFrames: 1,//( 960 / 60 ),
+	quality: 99,
+	format: 'webm',
+	timeLimit: 5.0,
+	frameLimit: 0,
+	autoSaveTime: 0,
+} );
+
+function capture() {
+	camera.position.set( 0, 0, 15 );
+	capturer.start();
+	setTimeout( function() {
+		spheres.forEach( function(s,id){
+			var force = s.body.position.clone().normalize().multiplyScalar(10*s.body.mass);
+	        s.body.applyImpulse( center, force );
+		})
+	},500);
+}*/
+
+var container, renderer, camera, controls, scene;
+var mesh;
+
+var helper;
+
+var container = document.getElementById( 'container' );
+
+var world = new OIMO.World({
+    timestep: 1/60,
+    iterations: 8,
+    broadphase: 2, // 1 brute force, 2 sweep and prune, 3 volume tree
+    worldscale: 1, // scale full world
+    random: true,  // randomize sample
+    info: false,   // calculate statistic or not
+    gravity: [0,0,0]
+});
+var spheres = [];
+var cameraBody;
+
+var contactBuffer = null;
+
+window.AudioContext = window.AudioContext || window.webkitAudioContext;
+var context = new AudioContext();
+
+function loadContactSound(url) {
+  var request = new XMLHttpRequest();
+  request.open('GET', url, true);
+  request.responseType = 'arraybuffer';
+
+  // Decode asynchronously
+  request.onload = function() {
+    context.decodeAudioData(request.response, function(buffer) {
+      contactBuffer = buffer;
+    }, function(e){
+    	console.log(e);
+    });
+  }
+  request.send();
+}
+
+//loadContactSound( '../assets/contact2.mp3');
+
+function playSound(buffer) {
+  var source = context.createBufferSource();
+  source.buffer = buffer;
+  source.connect(context.destination);
+  source.start(0);
+
+}
+
+var NUM = 30;
+var contactMatrix = new Uint8Array(NUM*NUM);
+
+function checkContact( a, b ) {
+	var ptr = a * NUM + b;
+	return contactMatrix[ptr];
+}
+
+function updateContact( a, b, state ) {
+	var ptr = a * NUM + b;
+	if( b < a ) ptr = b * NUM + a;
+	if(contactMatrix[ptr] === 0 && state === 1 ) {
+		var m = spheres[a].body.linearVelocity.length() + spheres[b].body.linearVelocity.length();
+		if( m > 10 ) playSound(contactBuffer);
+	}
+	contactMatrix[ptr] = state;
+}
+
+function initScene() {
+
+
+	var r = 10;
+	for( var j = 0; j < NUM; j++ ) {
+		var radius = Maf.randomInRange(.5,2);
+		var position = new THREE.Vector3( Maf.randomInRange(-r, r ), Maf.randomInRange(-r, r ), Maf.randomInRange(-r, r ) );
+		position.normalize().multiplyScalar(r);
+		/*var rotation = new THREE.Vector3( Maf.randomInRange(-1,1), Maf.randomInRange(-1,1), Maf.randomInRange(-1,1));
+		var origin = position.clone();
+		var dir = position.clone().normalize().multiplyScalar(-1);
+		var keepSearching = true;
+		var l = position.length();
+		for( var k = 0; k < l, keepSearching; k += .1 ) {
+			position.copy( origin.clone().add( dir.clone().multiplyScalar(k) ) );
+			for( var i = 0; i < spheres.length; i++ ) {
+				if( spheres[i].position.distanceTo(position) < radius + spheres[i].radius ) {
+					keepSearching = false;
+					break;
+				}
+			}
+			if( position.length() < .1 ) keepSearching = false;
+		}*/
+		spheres.push( { position: position, radius: radius });
+	}
+
+	var geometry = new THREE.InstancedBufferGeometry();
+	var g = new THREE.IcosahedronBufferGeometry(1,3);
+	geometry.index = g.index;
+	geometry.attributes.position = g.attributes.position;
+	geometry.attributes.normal = g.attributes.normal;
+	geometry.attributes.uv = g.attributes.uv;
+
+	var sphereData = [];
+	var extraData = [];
+
+	var positions = [];
+	var rotations = [];
+	var sizes = [];
+	var ids = []
+	spheres.forEach( function(s, id) {
+		positions.push( s.position.x );
+		positions.push( s.position.y );
+		positions.push( s.position.z );
+		rotations.push( 0 );
+		rotations.push( 0 );
+		rotations.push( 0 );
+		rotations.push( 0 );
+		var size = .95 * s.radius;
+		sizes.push( size );
+		ids.push(id);
+		sphereData.push( new THREE.Vector4( s.position.x, s.position.y, s.position.z, s.radius ) );
+		extraData.push( new THREE.Vector4());
+
+		var body = world.add({
+			name: 'sphere_' + id,
+		    type:'sphere',
+		    size:[size,size,size],
+		    pos:[s.position.x,s.position.y,s.position.z],
+		    rot:[0,0,0],
+		    move:true,
+		    density: 1,
+		    friction: 0.2,
+		    restitution: .8,
+		    belongsTo: 1,
+		    collidesWith: 0xffffffff
+		});
+		s.body = body;
+	})
+	geometry.addAttribute( 'rotation', new THREE.InstancedBufferAttribute( new Float32Array( rotations ), 4 ).setDynamic( true ) );
+	geometry.addAttribute( 'offset', new THREE.InstancedBufferAttribute( new Float32Array( positions ), 3 ).setDynamic( true ) );
+	geometry.addAttribute( 'size', new THREE.InstancedBufferAttribute( new Float32Array( sizes ), 1 ) );
+	geometry.addAttribute( 'id', new THREE.InstancedBufferAttribute( new Float32Array( ids ), 1 ) );
+
+	var loader = new THREE.TextureLoader();
+	var normalMapTexture = loader.load('../assets/normalmap.jpg');
+
+	var material = new THREE.RawShaderMaterial({
+		uniforms: {
+			normalMap: { type: 't', value: normalMapTexture },
+			lightDir1: { type: 'v3', value: new THREE.Vector3(0,1,0) },
+			lightDir2: { type: 'v3', value: new THREE.Vector3(1,0,0) },
+			spheres: { type: 'v4v', value: sphereData },
+			extra: { type: 'v4v', value: extraData },
+			time: { type: 'f', value: 0 }
+		},
+		vertexShader: document.getElementById('spheres-vs').textContent,
+		fragmentShader: document.getElementById('spheres-fs').textContent,
+		wireframe: !true
+	});
+
+	geometry.center();
+	mesh = new THREE.Mesh(
+		geometry,
+		material
+	);
+	scene.add(mesh);
+
+	cameraBody = world.add({
+	    type:'sphere',
+	    size:[2,2,2],
+	    pos:[camera.position.x,camera.position.y,camera.position.z],
+	    rot:[0,0,0],
+	    move:true,
+	    density: 1,
+	    friction: 0.2,
+	    restitution: 1.,
+	    belongsTo: 1,
+	    collidesWith: 0xffffffff
+	});
+
+}
+
+function init() {
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 0, 0, 10 );
+	camera.lookAt( camera.target );
+	scene.add( camera );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0xffffff, 1 );
+	container.appendChild( renderer.domElement );
+
+	addCommonUI(renderer.domElement);
+
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	initScene();
+	onWindowResized();
+
+	var hasChanged = false;
+	controls.addEventListener( 'change', function(e) {
+		hasChanged = true;
+	});
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	window.addEventListener( 'touchstart', function(e) {
+		hasChanged = false;
+	} );
+
+	window.addEventListener( 'touchend', function(e) {
+		if(!hasChanged) {
+			bump();
+		}
+	} );
+
+	window.addEventListener( 'keydown', function(e) {
+		if (e.keyCode === 32 ) {
+			bump();
+		}
+	})
+	animate();
+
+}
+
+function bump() {
+	spheres.forEach( function(s,id){
+		var force = s.body.position.clone().normalize().multiplyScalar(10*s.body.mass);
+		s.body.applyImpulse( center, force );
+	})
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+}
+
+var center = new THREE.Vector3(0,0,0);
+var tmpQuaternion = new THREE.Quaternion();
+var tmpEuler = new THREE.Euler();
+
+function animate() {
+
+	requestAnimationFrame( animate );
+
+	controls.update();
+
+	world.step();
+	var t = .001 * performance.now();
+
+	var ptr = 0;
+	var positions = mesh.geometry.attributes.offset.array;
+	var rotations = mesh.geometry.attributes.rotation.array;
+	spheres.forEach( function(s,id){
+		var p = s.body.getPosition();
+		mesh.material.uniforms.spheres.value[id].x = p.x;
+		mesh.material.uniforms.spheres.value[id].y = p.y;
+		mesh.material.uniforms.spheres.value[id].z = p.z;
+		positions[ptr + 0 ] = p.x;
+		positions[ptr + 1 ] = p.y;
+		positions[ptr + 2 ] = p.z;
+		tmpQuaternion.copy(s.body.getQuaternion()).normalize();
+		tmpEuler.setFromQuaternion(tmpQuaternion);
+		rotations[ptr + 0 ] = tmpEuler.x;
+		rotations[ptr + 1 ] = tmpEuler.y;
+		rotations[ptr + 2 ] = tmpEuler.z;
+		rotations[ptr + 3 ] = 0;
+		var force = s.body.position.clone().negate().multiplyScalar(.5);
+        s.body.applyImpulse( center, force );
+ 		mesh.material.uniforms.extra.value[id].x = s.body.linearVelocity.length();
+ 		mesh.material.uniforms.extra.value[id].y = s.body.linearVelocity.y;
+ 		mesh.material.uniforms.extra.value[id].z = s.body.linearVelocity.z;
+ 		mesh.material.uniforms.extra.value[id].w = s.body.numContacts;
+		/*spheres.forEach( function(s2,id2){
+			updateContact( id, id2, s.body.checkContact( s2.body.name )?1:0 );
+		});*/
+		ptr += 3;
+        //console.log(s.body.numContacts);
+        //if(s.body.numContacts) playSound(contactBuffer);
+	})
+	mesh.geometry.attributes.offset.needsUpdate = true;
+	mesh.geometry.attributes.rotation.needsUpdate = true;
+
+	cameraBody.position.copy( camera.position );
+	//mesh.material.uniforms.lightDir1.value.set( Math.cos(1.1*t), Math.sin(t),Math.cos(.9*t));
+	//mesh.material.uniforms.lightDir2.value.set( Math.sin(1.2*t), Math.cos(.9*t),Math.sin(1.*t));
+	mesh.material.uniforms.time.value = t;
+
+	//capturer.capture(renderer.domElement);
+	renderer.render( scene, camera );
+
+}
+
+window.addEventListener( 'load', init );
+
+</script>
+
+	</body>
+</html>
