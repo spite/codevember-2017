@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>TITLE - Codevember 2017</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
+			<h1>#. TITLE</h1>
+			<p>Lorem ipsum</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+
+<script id="display-vs" type="x-shader/x-vertex">
+precision highp float;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+uniform mat3 normalMatrix;
+
+uniform sampler2D map;
+uniform vec2 dimensions;
+
+attribute vec3 position;
+attribute vec3 offset;
+attribute vec2 uv;
+attribute vec3 normal;
+
+varying float vDiffuse;
+
+vec3 rotateX(vec3 p, float radian) {
+  mat3 m = mat3(
+    1.0, 0.0, 0.0,
+    0.0, cos(radian), -sin(radian),
+    0.0, sin(radian), cos(radian)
+  );
+  return m * p;
+}
+
+#define PI 3.1415926535897932384626433832795
+
+float luma(vec3 color) {
+  return dot(color, vec3(0.299, 0.587, 0.114));
+}
+
+float luma(vec4 color) {
+  return dot(color.rgb, vec3(0.299, 0.587, 0.114));
+}
+
+void main() {
+
+	vec2 uv = offset.xy / dimensions + .5;
+	vec4 c = texture2D( map, uv );
+	float a = luma(c) * PI / 2. - PI / 4.;
+	vec3 vPosition = rotateX( position, a );
+	vec3 n = normalize( rotateX( normal, a ));
+	vDiffuse = dot( n, vec3(0.,1.,1.) );
+
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( offset + vPosition, 1.0 );
+
+}
+</script>
+
+<script id="display-fs" type="x-shader/x-fragment">
+precision highp float;
+
+varying float vDiffuse;
+
+void main() {
+
+	gl_FragColor = vec4(vec3(vDiffuse),1.);
+
+}
+</script>
+
+<script>
+
+'use strict';
+
+var container, renderer, camera, controls, scene;
+var mesh;
+
+var helper;
+
+var container = document.getElementById( 'container' );
+var video = document.createElement('video');
+
+var width = 32;
+var height = 24;
+
+function getVideo() {
+
+	navigator.getUserMedia = navigator.getUserMedia ||
+	navigator.webkitGetUserMedia ||
+	navigator.mozGetUserMedia;
+
+	if (navigator.getUserMedia) {
+		navigator.getUserMedia({ audio: false, video: { width: width, height: height } },
+           function(stream) {
+           	video.srcObject = stream;
+           	video.onloadedmetadata = function(e) {
+	       		video.play();
+	       		document.body.appendChild(video);
+           	};
+           },
+           function(err) {
+           	console.log("The following error occurred: " + err.name);
+           }
+         );
+	} else {
+		console.log("getUserMedia not supported");
+	}
+
+
+}
+
+function initScene() {
+
+	getVideo();
+
+	var videoTexture = new THREE.VideoTexture(video);
+
+	var instances = width * height;
+
+	var bufferGeometry = new THREE.BoxBufferGeometry( 1,1,.1);
+
+	var geometry = new THREE.InstancedBufferGeometry();
+	geometry.index = bufferGeometry.index;
+	geometry.attributes.position = bufferGeometry.attributes.position;
+	geometry.attributes.normal = bufferGeometry.attributes.normal;
+	geometry.attributes.uv = bufferGeometry.attributes.uv;
+
+	var offsets = [];
+	var orientations = [];
+
+	var vector = new THREE.Vector4();
+	var x, y, z, w;
+
+	for( var y = 0; y < height; y++ ) {
+		for( var x = 0; x < width; x++ ) {
+			offsets.push( x - .5 * width, y - .5 * height, 0 );
+		}
+	}
+
+	var offsetAttribute = new THREE.InstancedBufferAttribute( new Float32Array( offsets ), 3 );
+
+	geometry.addAttribute( 'offset', offsetAttribute );
+
+	var material = new THREE.RawShaderMaterial( {
+
+		uniforms: {
+			map: { value: videoTexture },
+			dimensions: { value: new THREE.Vector2( width, height ) }
+		},
+		vertexShader: document.getElementById( 'display-vs' ).textContent,
+		fragmentShader: document.getElementById( 'display-fs' ).textContent
+
+	} );
+
+	mesh = new THREE.Mesh( geometry, material );
+	scene.add( mesh );
+}
+
+function init() {
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 0, 0, 20 );
+	camera.lookAt( camera.target );
+	scene.add( camera );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0x261b1f, 1 );
+	container.appendChild( renderer.domElement );
+
+	addCommonUI(renderer.domElement);
+
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	initScene();
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+}
+
+function animate() {
+
+	requestAnimationFrame( animate );
+
+	controls.update();
+
+	renderer.render( scene, camera );
+
+}
+
+window.addEventListener( 'load', init );
+
+</script>
+
+	</body>
+</html>
