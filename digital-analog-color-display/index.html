@@ -13,7 +13,7 @@
 
 		<div id="container"></div>
 		<div id="info" >
-			<p><a href="../bonkey-balls" >Previous</a> <!--| <a href="../n" >Next</a>--></p>
+			<p><a href="../bonkey-balls" >Previous</a> | <a href="../the-wrung-music" >Next</a></p>
 			<h1>14. Digital Analog Color Display</h1>
 			<p>A display that renders colors by orienting Red, Green and Blue blocks towards a light source.</p>
 			<p><b>Click or tap and drag</b> to move the camera, <b>scroll or zoom with two fingers</b> to zoom in and out.</p>
@@ -139,7 +139,7 @@ function getVideo() {
            	video.srcObject = stream;
            	video.onloadedmetadata = function(e) {
 	       		video.play();
-	       		document.body.appendChild(video);
+	       		//document.body.appendChild(video);
            	};
            },
            function(err) {
