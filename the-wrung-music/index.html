@@ -433,6 +433,8 @@ document.getElementById( 'usemic' ).addEventListener( 'click', function() {
 	odeo.useMicrophone();
 });
 
+document.body.appendChild(odeo.getUI());
+
 var particles;
 var fftSpreadTexture;
 var floatType = isMobile.any?THREE.HalfFloatType:THREE.FloatType;

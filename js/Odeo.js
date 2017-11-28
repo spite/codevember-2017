@@ -101,7 +101,10 @@ OdeoMicrophone.prototype.play = function() {
 
 OdeoMicrophone.prototype.stop = function() {
 
-	this.microphone.disconnect( this.odeo.analyser );
+	if( this.microphone ) {
+		this.microphone.disconnect( this.odeo.analyser );
+	}
+	this.microphone = null;
 
 }
 
@@ -226,6 +229,42 @@ Odeo.prototype.update = function() {
 
 	this.bpmTime = (performance.now() - this.bpmStart)/633;
 
+}
+
+// [ mic ] [ url ] [ play / pause ]
+
+Odeo.prototype.getUI = function() {
+
+	this.div = document.createElement('div');
+	var code = '<style>.odeo-player{position:absolute;left:10px; bottom:10px; z-index:1000;}.odeo-player *{all:unset;font-size: 12px}</style>';
+	code += '<style>.odeo-button, .odeo-input{border: 1px solid white; display: inline-block; padding: .5em; opacity: .5; cursor: pointer}</style>';
+	code += '<style>.odeo-button:hover, .odeo-input:hover{opacity:1}</style>';
+	code += '<style>.odeo-input:focus{width: 200px}</style>';
+	code += '<style>.odeo-active{opacity:1}</style>';
+	code += '<div class="odeo-player"><div class="odeo-button odeo-mic">Mic</div><div class="odeo-button odeo-url">URL</div><input placeholder="soundcloud url" type="text" class="odeo-input"></div>';
+	this.div.innerHTML = code;
+
+	var odeo = this;
+	var div = this.div;
+	var useMic = this.div.querySelector('.odeo-mic');
+	var useURL = this.div.querySelector('.odeo-url');
+
+	useMic.addEventListener('click', function(){
+		useURL.classList.remove('odeo-active');
+		useMic.classList.add('odeo-active');
+		odeo.stopSoundCloud();
+		odeo.useMicrophone();
+	});
+
+	useURL.addEventListener('click', function(){
+		useMic.classList.remove('odeo-active');
+		useURL.classList.add('odeo-active');
+		var url = div.querySelector('.odeo-input').value;
+		odeo.stopUsingMicrophone();
+		odeo.playSoundCloud(url);
+	});
+
+	return this.div;
 }
 
 window.Odeo = Odeo;
