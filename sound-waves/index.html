@@ -289,13 +289,15 @@ var playDiv = document.getElementById( 'play' );
 
 if( isMobile.any ) {
 
-	playDiv.addEventListener( 'click', function() {
+	function startPlaying() {
+		playDiv.removeEventListener( 'click', startPlaying )
 		odeo.playSoundCloud('https://soundcloud.com/l-i-e-s/lies-26-5-b1-fire-rises-eqd-44')
 		playDiv.style.display = 'none';
-	} )
+	}
+	playDiv.addEventListener( 'click', startPlaying )
 
 } else {
-		playDiv.style.display = 'none';
+	playDiv.style.display = 'none';
 	//odeo.playSoundCloud('https://soundcloud.com/mrsuicidesheep/dawn-pt2-an-ambient-mix')
 	odeo.playSoundCloud('https://soundcloud.com/l-i-e-s/lies-26-5-b1-fire-rises-eqd-44')
 	//odeo.playSoundCloud('https://soundcloud.com/officialtrapbangers/i-dont-need-you-underwater-remix')
