@@ -1,4 +1,4 @@
-function PingPongTexture( renderer, shader, width, height, format, type ) {
+function PingPongTexture( renderer, shader, width, height, format, type, buffersCount ) {
 
 	this.renderer = renderer;
 	this.shader = shader;
@@ -12,7 +12,12 @@ function PingPongTexture( renderer, shader, width, height, format, type ) {
 		type: type || THREE.UnsignedByte
 	} );
 	this.target = 0;
-	this.targets = [ fbo, fbo.clone() ];
+	this.buffersCount = buffersCount || 2;
+	this.targets = [];
+	this.targets.push( fbo );
+	for( var j = 1; j < this.buffersCount; j++ ){
+		this.targets.push( fbo.clone() );
+	}
 	this.orthoCamera = new THREE.OrthographicCamera( width / - 2, width / 2, height / 2, height / - 2, .00001, 1000 );
 	this.orthoQuad = new THREE.Mesh( new THREE.PlaneBufferGeometry( 1, 1 ), this.shader );
 	this.orthoQuad.scale.set( width, height, 1 );
@@ -26,9 +31,12 @@ PingPongTexture.prototype.render = function() {
 
 	this.shader.uniforms.source.value = this.front.texture;
 
-	this.target = 1 - this.target;
+	this.target++;
+	this.target %= this.buffersCount;
 	this.front = this.targets[ this.target ];
-	this.back = this.targets[ 1 - this.target ];
+	var prev = this.target - 1;
+	if( prev < 0 ) prev += this.buffersCount;
+	this.back = this.targets[ prev ];
 
 	this.renderer.render( this.orthoScene, this.orthoCamera, this.front );
 
