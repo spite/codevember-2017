@@ -113,6 +113,14 @@ function Odeo( opts ){
 	this.analyser = this.context.createAnalyser();
 	this.analyser.fftSize = this.options.fftSize || 256;
 	this.frequencyData = new Uint8Array( this.analyser.frequencyBinCount );
+	this.timeData = new Uint8Array( this.analyser.frequencyBinCount );
+	this.waveData = [];
+	this.levelsData = [];
+	this.levelsCount = 16
+	this.beatCutOff = 0;
+	this.beatTime = 0;
+	this.bpmStart = 0;
+	this.volume = 0;
 
 	this.spectrumTexture = null;
 
@@ -156,6 +164,7 @@ Odeo.prototype.stopSoundCloud = function( url ) {
 Odeo.prototype.getSpectrumTexture = function() {
 
 	this.spectrumTexture = new THREE.DataTexture( this.frequencyData, 1 * this.frequencyData.length, 1, THREE.LuminanceFormat );
+	//this.spectrumTexture = new THREE.DataTexture( this.timeData, 1 * this.timeData.length, 1, THREE.LuminanceFormat );
 	this.spectrumTexture.minFilter = THREE.NearestFilter;
 	this.spectrumTexture.magFilter = THREE.NearestFilter;
 	this.spectrumTexture.needsUpdate = true;
@@ -166,9 +175,56 @@ Odeo.prototype.getSpectrumTexture = function() {
 
 Odeo.prototype.update = function() {
 
+	var volSens = 1;
+
 	this.analyser.getByteFrequencyData( this.frequencyData );
 	if( this.spectrumTexture ) this.spectrumTexture.needsUpdate = true;
 	//kick.onUpdate();
+
+
+	this.analyser.getByteTimeDomainData(this.timeData); // <-- waveform
+
+	for(var i = 0; i < this.analyser.frequencyBinCount; i++) {
+		this.waveData[i] = ((this.timeData[i] - 128) /128 ) * volSens;
+	}
+
+	var levelBins = Math.floor(this.analyser.frequencyBinCount / this.levelsCount);
+
+	for(var i = 0; i < this.levelsCount; i++) {
+		var sum = 0;
+		for(var j = 0; j < levelBins; j++) {
+			sum += this.frequencyData[(i * levelBins) + j];
+		}
+		this.levelsData[i] = sum / levelBins/256 * volSens;
+	}
+
+	var sum = 0;
+	for(var j = 0; j < this.levelsCount; j++) {
+		sum += this.levelsData[j];
+	}
+
+	this.volume = sum / this.levelsCount;
+
+	var BEAT_HOLD_TIME = 40;
+	var BEAT_DECAY_RATE = 0.98;
+	var BEAT_MIN = 0.15;
+
+	if (this.volume  > this.beatCutOff && this.volume > BEAT_MIN){
+		if( this.onBeat ) this.onBeat();
+		this.bpmStart = performance.now();
+
+		this.beatCutOff = this.volume *1.1;
+		this.beatTime = 0;
+	}else{
+		if (this.beatTime <= BEAT_HOLD_TIME){
+			this.beatTime ++;
+		}else{
+			this.beatCutOff *= BEAT_DECAY_RATE;
+			this.beatCutOff = Math.max(this.beatCutOff,BEAT_MIN);
+		}
+	}
+
+	this.bpmTime = (performance.now() - this.bpmStart)/633;
 
 }
 
