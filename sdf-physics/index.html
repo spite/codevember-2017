@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>TITLE - Codevember 2017</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link rel="stylesheet" type="text/css" href="../css/styles.css" media="screen" />
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info" >
+			<p><a href="../n" >Previous</a> | <a href="../n" >Next</a></p>
+			<h1>#. TITLE</h1>
+			<p>Lorem ipsum</p>
+			<p id="moreDetails"><b>More details...</b></p>
+		</div>
+		<div id="details" class="hidden">
+			<div class="content" >
+				<h1>Details</h1>
+				<p>Lorem ipsum <a href="#" >dolor sit amet</a>.</p>
+				<a href="#" id="close-details">Close</a>
+			</div>
+		</div>
+
+		<script src="../js/Common.js"></script>
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+		<script src="../js/Maf.js"></script>
+		<script src="../js/THREE.PingPongTexture.js"></script>
+		<script src="../js/THREE.FBOHelper.js"></script>
+
+<script type="x-shader/x-vertex" id="ortho-vs" >
+precision highp float;
+
+attribute vec3 position;
+attribute vec2 uv;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+varying vec2 vUv;
+
+void main() {
+	vUv = uv;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1. );
+}
+</script>
+
+<script type="x-shader/x-vertex" id="position-fs" >
+precision highp float;
+
+uniform sampler2D source;
+uniform sampler2D velocities;
+
+varying vec2 vUv;
+
+void main() {
+
+	vec4 v = texture2D( velocities, vUv );
+	vec4 p = texture2D( source, vUv );
+	if( v.a == 100. ) {
+		p.xyz = vec3(vUv.x * 10., 100., vUv.y*10.);
+	}
+	gl_FragColor = p;
+	gl_FragColor.xyz += v.xyz;
+
+}
+</script>
+
+<script type="x-shader/x-vertex" id="velocity-fs" >
+precision highp float;
+
+uniform sampler2D source;
+uniform sampler2D positions;
+
+varying vec2 vUv;
+
+const float PI = 3.14159265359;
+
+float hash( float n ) { // 0 - 1
+    return fract(sin(n)*3538.5453);
+}
+
+vec3 randomSphereDir(vec2 rnd) {
+	float s = rnd.x*PI*2.;
+	float t = rnd.y*2.-1.;
+	return vec3(sin(s), cos(s), t) / sqrt(1.0 + t * t);
+}
+
+vec3 randomHemisphereDir(vec3 dir, float i) {
+	vec3 v = randomSphereDir( vec2(hash(i+1.), hash(i+2.)) );
+	return v * sign(dot(v, dir));
+}
+
+void main() {
+
+	vec4 v = texture2D( source, vUv );
+	vec4 p = texture2D( positions, vUv );
+	v.a -= .1;
+	if( v.a <= 0. ) {
+		v.xyz = vec3(0.);
+		v.a = 100.;
+	} else {
+		v.y -= .098;
+	}
+	if( p.y + v.y < 0. ) {
+		v.y *= -1.;
+		float l = length(v.xyz);
+		//v.xyz = normalize(randomHemisphereDir(v.xyz, length(vUv)+length(p.xyz))) * l;
+	}
+	gl_FragColor = v;
+
+}
+</script>
+
+<script id="particle-vs" type="x-shader/x-vertex">
+precision highp float;
+
+attribute vec3 position;
+attribute vec3 offset;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+uniform sampler2D positions;
+uniform sampler2D velocities;
+
+vec2 rotate(vec2 v, float a) {
+	float s = sin(a);
+	float c = cos(a);
+	mat2 m = mat2(c, -s, s, c);
+	return m * v;
+}
+
+const float PI = 3.14159265359;
+
+void main(){
+
+	vec4 pp = texture2D( positions, offset.xy );
+	vec4 v = texture2D( velocities, offset.xy );
+	vec4 ppp = pp - v;
+	pp = mix( ppp, pp, .5 );
+
+	vec4 mVP = modelViewMatrix * vec4( pp.xyz, 1.0 );
+	vec4 d = modelViewMatrix * vec4( v.xyz, 0.0 );
+	float l = length(d.xyz);
+	float a = atan(d.y,d.x) + .5 * PI;
+
+	mVP.xy += rotate( position.xy * vec2(1.,l), a );
+
+	gl_Position = projectionMatrix * mVP;
+
+}
+
+</script>
+
+<script id="particle-fs" type="x-shader/x-fragment">
+precision highp float;
+
+void main() {
+
+	gl_FragColor = vec4(1.);
+
+}
+
+</script>
+
+<script>
+
+'use strict';
+
+var container, renderer, camera, controls, scene;
+var mesh;
+
+var helper;
+
+var container = document.getElementById( 'container' );
+
+var positionSim, velocitySim;
+
+function initScene() {
+
+	var width = 8;
+	var height = 8;
+
+	var instances = width * height;
+
+	var positions = [];
+	var offsets = [];
+
+	var r = 100;
+	for ( var y = 0; y < height; y++ ) {
+		for ( var x = 0; x < width; x++ ) {
+			offsets.push( x/width,y/height,0 );
+		}
+	}
+
+	var geometry = new THREE.InstancedBufferGeometry();
+	geometry.maxInstancedCount = instances;
+
+	var planeGeometry = new THREE.BufferGeometry().fromGeometry( new THREE.PlaneGeometry(1,1) );
+
+	geometry.addAttribute( 'position', new THREE.Float32BufferAttribute( planeGeometry.attributes.position.array, 3 ) );
+	geometry.addAttribute( 'offset', new THREE.InstancedBufferAttribute( new Float32Array( offsets ), 3 ) );
+
+	var material = new THREE.RawShaderMaterial( {
+		uniforms: {
+			positions: { value: null },
+			velocities: { value: null },
+		},
+		vertexShader: document.getElementById( 'particle-vs' ).textContent,
+		fragmentShader: document.getElementById( 'particle-fs' ).textContent,
+		side: THREE.DoubleSide,
+		transparent: true,
+		wireframe: true
+	} );
+
+	mesh = new THREE.Mesh( geometry, material );
+	scene.add( mesh );
+
+	var positionShader = new THREE.RawShaderMaterial( {
+		uniforms:{
+			source: { type: 't', value: null },
+			velocities: { type: 't', value: null },
+		},
+		vertexShader: document.getElementById( 'ortho-vs' ).textContent,
+		fragmentShader: document.getElementById( 'position-fs' ).textContent
+	} );
+
+	positionSim = new PingPongTexture(renderer,positionShader,width,height,THREE.RGBAFormat,THREE.FloatType);
+
+	var velocityShader = new THREE.RawShaderMaterial( {
+		uniforms:{
+			source: { type: 't', value: null },
+			positions: { type: 't', value: null },
+		},
+		vertexShader: document.getElementById( 'ortho-vs' ).textContent,
+		fragmentShader: document.getElementById( 'velocity-fs' ).textContent
+	} );
+
+	velocitySim = new PingPongTexture(renderer,velocityShader,width,height,THREE.RGBAFormat,THREE.FloatType);
+
+	helper.attach( positionSim.front, 'pos front');
+	helper.attach( positionSim.back, 'pos back');
+	helper.attach( velocitySim.front, 'vel front');
+	helper.attach( velocitySim.back, 'vel back');
+
+}
+
+var params = {
+	animate: true
+}
+
+function init() {
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 10000 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 100, 100, 100 );
+	camera.lookAt( camera.target );
+	scene.add( camera );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0x261b1f, 1 );
+	container.appendChild( renderer.domElement );
+
+	helper = new FBOHelper(renderer);
+
+	addCommonUI(renderer.domElement);
+
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFShadowMap;
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	initScene();
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	window.addEventListener( 'keydown', function(e) {
+		if (e.keyCode === 32) {
+			params.animate = !params.animate;
+		}
+	})
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+	helper.setSize(w,h);
+}
+
+function animate() {
+
+	requestAnimationFrame( animate );
+
+	if( params.animate ) {
+		velocitySim.shader.uniforms.positions.value = positionSim.front;
+		velocitySim.render();
+		positionSim.shader.uniforms.velocities.value = velocitySim.front;
+		positionSim.render();
+		mesh.material.uniforms.positions.value = positionSim.front;
+		mesh.material.uniforms.velocities.value = velocitySim.front;
+	}
+
+	controls.update();
+
+	renderer.render( scene, camera );
+	helper.update();
+
+}
+
+window.addEventListener( 'load', init );
+
+</script>
+
+	</body>
+</html>
