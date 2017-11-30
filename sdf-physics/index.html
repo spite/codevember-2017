@@ -55,18 +55,21 @@ precision highp float;
 
 uniform sampler2D source;
 uniform sampler2D velocities;
+uniform sampler2D particles;
 
 varying vec2 vUv;
 
 void main() {
 
+	vec4 i = texture2D( particles, vUv );
 	vec4 v = texture2D( velocities, vUv );
 	vec4 p = texture2D( source, vUv );
 	if( v.a == 100. ) {
-		p.xyz = vec3(vUv.x * 10., 100., vUv.y*10.);
+		p.xyz = vec3((vUv.x-.5) * 100., 100., (vUv.y-.5)*100.);
 	}
 	gl_FragColor = p;
 	gl_FragColor.xyz += v.xyz;
+	//gl_FragColor.xyz = i.xyz;
 
 }
 </script>
@@ -76,6 +79,13 @@ precision highp float;
 
 uniform sampler2D source;
 uniform sampler2D positions;
+uniform sampler2D particles;
+
+uniform vec4 spherePositions[10];
+uniform vec4 cubePositions[10];
+uniform vec4 cubeQuaternions[10];
+uniform vec4 torusQuaternions[10];
+uniform vec4 torusPositions[10];
 
 varying vec2 vUv;
 
@@ -96,8 +106,68 @@ vec3 randomHemisphereDir(vec3 dir, float i) {
 	return v * sign(dot(v, dir));
 }
 
+float sdSphere( vec3 p, float s ){
+	return length(p)-s;
+}
+
+float sdBox( vec3 p, vec3 b ) {
+  vec3 d = abs(p) - b;
+  return min(max(d.x,max(d.y,d.z)),0.0) + length(max(d,0.0));
+}
+
+float sdTorus( vec3 p, vec2 t ) {
+  vec2 q = vec2(length(p.xz)-t.x,p.y);
+  return length(q)-t.y;
+}
+
+vec3 rotateVector( vec4 quat, vec3 vec ){
+	return vec + 2.0 * cross( cross( vec, quat.xyz ) + quat.w * vec, quat.xyz );
+}
+
+vec3 calcBoxNormal(vec3 p, vec4 q, vec3 b, float e) {
+  const vec3 v1 = vec3( 1.0,-1.0,-1.0);
+  const vec3 v2 = vec3(-1.0,-1.0, 1.0);
+  const vec3 v3 = vec3(-1.0, 1.0,-1.0);
+  const vec3 v4 = vec3( 1.0, 1.0, 1.0);
+
+  return normalize( v1 * sdBox( rotateVector( q, p + v1 * e ), b ) +
+                    v2 * sdBox( rotateVector( q, p + v2 * e ), b ) +
+                    v3 * sdBox( rotateVector( q, p + v3 * e ), b ) +
+                    v4 * sdBox( rotateVector( q, p + v4 * e ), b ) );
+}
+
+vec3 calcTorusNormal(vec3 p, vec4 q, vec2 b, float e) {
+  const vec3 v1 = vec3( 1.0,-1.0,-1.0);
+  const vec3 v2 = vec3(-1.0,-1.0, 1.0);
+  const vec3 v3 = vec3(-1.0, 1.0,-1.0);
+  const vec3 v4 = vec3( 1.0, 1.0, 1.0);
+
+  return normalize( v1 * sdTorus( rotateVector( q, p + v1 * e ), b ) +
+                    v2 * sdTorus( rotateVector( q, p + v2 * e ), b ) +
+                    v3 * sdTorus( rotateVector( q, p + v3 * e ), b ) +
+                    v4 * sdTorus( rotateVector( q, p + v4 * e ), b ) );
+}
+
+float rand(vec2 co){
+    return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+}
+
+const float EPSILON = .001;
+
+vec3 bounce( vec3 v, vec3 n ) {
+	float scatter = 1.;
+	float friction = .8;
+	vec3 r = reflect(v,n);
+	n = r;
+	n += scatter * vec3( .5 - rand( vUv + v.xz ), .5 - rand( vUv + v.yz ),.5 - rand( vUv + v.zy ) );
+	n = normalize(n);
+	float l = length(v.xyz) * ( 1. - friction );
+	return n * l;
+}
+
 void main() {
 
+	vec4 i = texture2D( particles, vUv );
 	vec4 v = texture2D( source, vUv );
 	vec4 p = texture2D( positions, vUv );
 	v.a -= .1;
@@ -105,13 +175,61 @@ void main() {
 		v.xyz = vec3(0.);
 		v.a = 100.;
 	} else {
-		v.y -= .098;
+		v.y -= .0098 * (1.+length(vUv));//i.w;
 	}
-	if( p.y + v.y < 0. ) {
-		v.y *= -1.;
-		float l = length(v.xyz);
-		//v.xyz = normalize(randomHemisphereDir(v.xyz, length(vUv)+length(p.xyz))) * l;
+
+	if( p.y + v.y < -100. ) {
+		v.xyz = bounce( v.xyz, vec3(0.,1.,0.) );
 	}
+
+	vec4 q;
+
+	/*for( int i = 0; i < 10; i++ ) {
+		vec3 pp = spherePositions[i].xyz - ( p.xyz + v.xyz );
+		float d = sdSphere( pp.xyz, spherePositions[i].w );
+		if( d < EPSILON ) {
+			float l = length(v.xyz);
+			vec3 n = normalize(-pp.xyz);
+			n += rand( vUv + pp.xz );
+			n = normalize(n);
+			v.xyz = n * l;
+			//v.xyz = normalize(randomHemisphereDir(v.xyz, length(vUv)+length(p.xyz))) * l;
+			continue;
+		}
+	}
+
+	for( int i = 0; i < 10; i++ ) {
+		q = cubeQuaternions[i];
+		vec3 b = vec3(.5 * cubePositions[i].w);
+		vec3 pp = cubePositions[i].xyz - ( p.xyz + v.xyz );
+		float d = sdBox( rotateVector( q, pp ), b);
+		if( d < EPSILON ) {
+			vec3 n = -calcBoxNormal( pp, q, b, EPSILON );
+			n += rand( vUv + pp.xz );
+			n = normalize(n);
+			float l = length(v.xyz);
+			v.xyz = n * l;
+			continue;
+		}
+	}*/
+
+	for( int i = 0; i < 10; i++ ) {
+		q = torusQuaternions[i];
+		vec3 pp = torusPositions[i].xyz - ( p.xyz + v.xyz );
+		vec2 b = vec2(10.,2.)*torusPositions[i].w;
+		float d = sdTorus( rotateVector( q, pp ), b);
+		if( d > 0. && d < EPSILON ) {
+			vec3 n = -calcTorusNormal( pp, q, b, EPSILON );
+			v.xyz = bounce( v.xyz, n );
+			continue;
+		}
+		if( d < EPSILON ) {
+			vec3 n = -calcTorusNormal( pp, q, b, EPSILON );
+			v.xyz = 2. * bounce( v.xyz, n );
+			continue;
+		}
+	}
+
 	gl_FragColor = v;
 
 }
@@ -146,11 +264,14 @@ void main(){
 	pp = mix( ppp, pp, .5 );
 
 	vec4 mVP = modelViewMatrix * vec4( pp.xyz, 1.0 );
-	vec4 d = modelViewMatrix * vec4( v.xyz, 0.0 );
-	float l = length(d.xyz);
-	float a = atan(d.y,d.x) + .5 * PI;
+	/*vec4 d = modelViewMatrix * vec4( v.xyz, 0.0 );
+	vec2 td = d.xy;//d.xy/d.w;
+	float l = 4.;//length(td);
+	td = normalize(td);
+	float a = atan(td.y,td.x);
 
-	mVP.xy += rotate( position.xy * vec2(1.,l), a );
+	mVP.xy += rotate( position.xy * vec2(l,1.), a );*/
+	mVP.xy += position.xy;
 
 	gl_Position = projectionMatrix * mVP;
 
@@ -163,7 +284,7 @@ precision highp float;
 
 void main() {
 
-	gl_FragColor = vec4(1.);
+	gl_FragColor = vec4(1.,1.,1.,.5);
 
 }
 
@@ -181,11 +302,12 @@ var helper;
 var container = document.getElementById( 'container' );
 
 var positionSim, velocitySim;
+var objects = { spheres: [], cubes: [], tori: [] };
 
 function initScene() {
 
-	var width = 8;
-	var height = 8;
+	var width = 256;
+	var height = 256;
 
 	var instances = width * height;
 
@@ -202,7 +324,7 @@ function initScene() {
 	var geometry = new THREE.InstancedBufferGeometry();
 	geometry.maxInstancedCount = instances;
 
-	var planeGeometry = new THREE.BufferGeometry().fromGeometry( new THREE.PlaneGeometry(1,1) );
+	var planeGeometry = new THREE.BufferGeometry().fromGeometry( new THREE.PlaneGeometry(.5,.5) );
 
 	geometry.addAttribute( 'position', new THREE.Float32BufferAttribute( planeGeometry.attributes.position.array, 3 ) );
 	geometry.addAttribute( 'offset', new THREE.InstancedBufferAttribute( new Float32Array( offsets ), 3 ) );
@@ -216,16 +338,29 @@ function initScene() {
 		fragmentShader: document.getElementById( 'particle-fs' ).textContent,
 		side: THREE.DoubleSide,
 		transparent: true,
-		wireframe: true
+		wireframe: !true,
+		//depthTest: false
+		depthWrite: false
 	} );
 
 	mesh = new THREE.Mesh( geometry, material );
 	scene.add( mesh );
 
+	var r = 1000;
+	var info = new Float32Array(width*height*4);
+	for( var j = 0; j < info.length; j+=4 ) {
+		info[ j + 0 ] = Maf.randomInRange(-r,r);
+		info[ j + 1 ] = Maf.randomInRange(-r,r);
+		info[ j + 2 ] = Maf.randomInRange(-r,r);
+		info[ j + 3 ] = Maf.randomInRange(1,1);
+	}
+	var particleInfo = new THREE.DataTexture(info,width,height,THREE.RGBAFormat,THREE.FloatType);
+
 	var positionShader = new THREE.RawShaderMaterial( {
 		uniforms:{
-			source: { type: 't', value: null },
-			velocities: { type: 't', value: null },
+			source: { value: null },
+			velocities: { value: null },
+			particles: { value: particleInfo }
 		},
 		vertexShader: document.getElementById( 'ortho-vs' ).textContent,
 		fragmentShader: document.getElementById( 'position-fs' ).textContent
@@ -233,10 +368,73 @@ function initScene() {
 
 	positionSim = new PingPongTexture(renderer,positionShader,width,height,THREE.RGBAFormat,THREE.FloatType);
 
+	var spherePositions = [];
+	var r = 50;
+	for( var j = 0; j < 10; j++ ) {
+		spherePositions.push(
+		    new THREE.Vector4(
+		    	Maf.randomInRange(-r,r),
+		    	Maf.randomInRange(-r,r),
+		    	Maf.randomInRange(-r,r),
+		    	Maf.randomInRange(10,20)
+		    )
+		);
+	}
+
+	var cubeQuaternions = [];
+	var cubePositions = [];
+	var r = 50;
+	for( var j = 0; j < 10; j++ ) {
+		cubeQuaternions.push(
+		    new THREE.Vector4(
+		    	Maf.randomInRange(-1,1),
+		    	Maf.randomInRange(-1,1),
+		    	Maf.randomInRange(-1,1),
+		    	Maf.randomInRange(-1,1)
+		    ).normalize()
+		);
+		cubePositions.push(
+		    new THREE.Vector4(
+		    	Maf.randomInRange(-r,r),
+		    	Maf.randomInRange(-r,r),
+		    	Maf.randomInRange(-r,r),
+		    	Maf.randomInRange(20,30)
+		    )
+		);
+	}
+
+	var torusQuaternions = [];
+	var torusPositions = [];
+	var r = 50;
+	for( var j = 0; j < 10; j++ ) {
+		torusQuaternions.push(
+		    new THREE.Vector4(
+		    	Maf.randomInRange(-1,1),
+		    	Maf.randomInRange(-1,1),
+		    	Maf.randomInRange(-1,1),
+		    	Maf.randomInRange(-1,1)
+		    ).normalize()
+		);
+		torusPositions.push(
+		    new THREE.Vector4(
+		    	Maf.randomInRange(-r,r),
+		    	Maf.randomInRange(-r,r),
+		    	Maf.randomInRange(-r,r),
+		    	Maf.randomInRange(1,3)
+		    )
+		);
+	}
+
 	var velocityShader = new THREE.RawShaderMaterial( {
 		uniforms:{
-			source: { type: 't', value: null },
-			positions: { type: 't', value: null },
+			source: { value: null },
+			positions: { value: null },
+			spherePositions: { value: spherePositions },
+			cubePositions: { value: cubePositions },
+			cubeQuaternions: { value: cubeQuaternions },
+			torusPositions: { value: torusPositions },
+			torusQuaternions: { value: torusQuaternions },
+			particles: { value: particleInfo }
 		},
 		vertexShader: document.getElementById( 'ortho-vs' ).textContent,
 		fragmentShader: document.getElementById( 'velocity-fs' ).textContent
@@ -248,6 +446,50 @@ function initScene() {
 	helper.attach( positionSim.back, 'pos back');
 	helper.attach( velocitySim.front, 'vel front');
 	helper.attach( velocitySim.back, 'vel back');
+
+	/*var sphere = new THREE.Mesh(
+		new THREE.IcosahedronBufferGeometry(10,3),
+		new THREE.MeshNormalMaterial()
+	);
+	scene.add(sphere);*/
+
+	var objMaterial = new THREE.MeshNormalMaterial({wireframe:!true});
+
+	for( var j = 0; j < cubePositions.length; j++ ) {
+		var cube = new THREE.Mesh(
+		    new THREE.BoxBufferGeometry(1,1,1),
+			objMaterial
+		)
+		cube.scale.set(cubePositions[j].w, cubePositions[j].w, cubePositions[j].w)
+		cube.quaternion.copy( cubeQuaternions[j] );
+		cube.position.set( cubePositions[j].x, cubePositions[j].y, cubePositions[j].z );
+		//scene.add(cube);
+	}
+
+	for( var j = 0; j < spherePositions.length; j++ ) {
+		var sphere = new THREE.Mesh(
+		    new THREE.IcosahedronBufferGeometry(1,3),
+		    objMaterial
+		)
+		sphere.scale.set(spherePositions[j].w, spherePositions[j].w, spherePositions[j].w)
+		sphere.position.set( spherePositions[j].x, spherePositions[j].y, spherePositions[j].z );
+		//scene.add(sphere);
+	}
+
+	var rot = new THREE.Matrix4();
+	rot.makeRotationX(Math.PI/2);
+	for( var j = 0; j < torusPositions.length; j++ ) {
+		var torus = new THREE.Mesh(
+		    new THREE.TorusBufferGeometry(10,2,16,100),
+		    objMaterial
+		)
+		torus.geometry.applyMatrix(rot);
+		torus.scale.set(torusPositions[j].w, torusPositions[j].w, torusPositions[j].w)
+		torus.position.set( torusPositions[j].x, torusPositions[j].y, torusPositions[j].z );
+		torus.quaternion.copy( torusQuaternions[j] );
+		scene.add(torus);
+		objects.tori.push(torus);
+	}
 
 }
 
@@ -312,6 +554,15 @@ function animate() {
 	requestAnimationFrame( animate );
 
 	if( params.animate ) {
+
+		var t = .001 * performance.now();
+		for( var j = 0; j < objects.tori.length; j++ ) {
+			var q = velocitySim.shader.uniforms.torusQuaternions.value[j];
+			q.x = Math.sin(t);
+			q.normalize();
+			objects.tori[j].quaternion.copy( q );
+		}
+
 		velocitySim.shader.uniforms.positions.value = positionSim.front;
 		velocitySim.render();
 		positionSim.shader.uniforms.velocities.value = velocitySim.front;
